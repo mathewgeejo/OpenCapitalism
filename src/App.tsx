@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { AuthPanel } from './components/AuthPanel'
-import { GameTable } from './components/game/GameTable'
-import { LobbyScreen, type LobbyRoom } from './components/lobby/LobbyScreen'
+import { LobbyScreen, type CreateRoomOptions, type LobbyRoom } from './components/lobby/LobbyScreen'
 import { Toast } from './components/Toast'
-import { createGameState, GameRuleError, reduceGame, type GameAction, type GameState } from './game'
+import { createGameState, GameRuleError, reduceGame, type GameAction, type GameState, type PublicGameState } from './game'
+import { fetchGameSnapshot, submitGameAction, subscribeToGameVersion } from './lib/gameApi'
+import { adaptRemoteGame, toServerAction, type RemoteGameMeta } from './lib/remoteGame'
+import { createInvite, createRoom, joinRoom, joinRoomByInvite, listAvailableRooms, startRoom } from './lib/roomsApi'
 import { isSupabaseConfigured } from './lib/supabase'
 import { useAuth } from './lib/useAuth'
 
 const LOCAL_PLAYER_ID = 'aria-vale'
+const GameTable = lazy(() => import('./components/game/GameTable').then((module) => ({ default: module.GameTable })))
 
 const DEMO_ROOMS: LobbyRoom[] = [
   { id: 'harbor-assembly', title: 'Harbor Assembly', seats: 4, maxPlayers: 20, visibility: 'public', status: 'waiting', host: 'Aria Vale' },
@@ -87,7 +90,12 @@ function chooseAutomatedAction(game: GameState): GameAction | null {
       : { type: 'DECLINE_PROPERTY', playerId }
   }
   if (game.phase === 'auction' && game.auction) {
-    const bidder = game.players.find((candidate) => game.auction!.eligiblePlayerIds.includes(candidate.id) && !game.auction!.passedPlayerIds.includes(candidate.id) && candidate.status === 'active')
+    const bidder = game.players.find((candidate) =>
+      game.auction!.eligiblePlayerIds.includes(candidate.id) &&
+      !game.auction!.passedPlayerIds.includes(candidate.id) &&
+      candidate.id !== game.auction!.highestBidderId &&
+      candidate.status === 'active',
+    )
     if (!bidder) return { type: 'EXPIRE_AUCTION' }
     const nextBid = game.auction.highestBid + 20
     return bidder.cash > nextBid + 100
@@ -108,6 +116,10 @@ export default function App() {
   const { user, loading, signOut } = useAuth()
   const [screen, setScreen] = useState<'auth' | 'lobby' | 'game'>(isSupabaseConfigured ? 'auth' : 'auth')
   const [game, setGame] = useState<GameState>(() => createDemoGame())
+  const [remoteGame, setRemoteGame] = useState<PublicGameState | null>(null)
+  const [remoteMeta, setRemoteMeta] = useState<RemoteGameMeta | null>(null)
+  const [remoteConnected, setRemoteConnected] = useState(false)
+  const [rooms, setRooms] = useState<LobbyRoom[]>(DEMO_ROOMS)
   const [notice, setNotice] = useState<string | null>(null)
 
   const displayName = useMemo(() => {
@@ -119,6 +131,29 @@ export default function App() {
     if (user) setScreen((current) => current === 'auth' ? 'lobby' : current)
   }, [user])
 
+  const refreshRemoteGame = useCallback(async (gameId: string) => {
+    const envelope = await fetchGameSnapshot(gameId)
+    setRemoteMeta(envelope.game)
+    setRemoteGame(adaptRemoteGame(envelope))
+    return envelope
+  }, [])
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured || screen !== 'lobby') return
+    let disposed = false
+    void listAvailableRooms()
+      .then((items) => { if (!disposed) setRooms(items) })
+      .catch((error: unknown) => { if (!disposed) setNotice(error instanceof Error ? error.message : 'Public rooms could not be loaded.') })
+    return () => { disposed = true }
+  }, [screen, user])
+
+  useEffect(() => {
+    if (screen !== 'game' || !remoteMeta?.id) return
+    return subscribeToGameVersion(remoteMeta.id, () => {
+      void refreshRemoteGame(remoteMeta.id).catch(() => setNotice('A live update could not be loaded. Reconnecting…'))
+    }, (connected) => setRemoteConnected(connected))
+  }, [remoteMeta?.id, refreshRemoteGame, screen])
+
   const applyAction = (action: GameAction) => {
     try {
       setGame((current) => reduceGame(current, action, { rollDice: rollDemoDice }))
@@ -127,22 +162,104 @@ export default function App() {
     }
   }
 
+  const applyRemoteAction = async (action: GameAction) => {
+    if (!remoteGame || !remoteMeta || !user) return
+    try {
+      if (action.type === 'START_GAME') {
+        const started = await startRoom(remoteMeta.id, remoteGame.version)
+        const meta = { ...remoteMeta, status: 'active', version: started.version }
+        setRemoteMeta(meta)
+        const next = adaptRemoteGame({ ok: true, game: meta, snapshot: started.snapshot, events: [] })
+        setRemoteGame({ ...next, events: remoteGame.events })
+        void refreshRemoteGame(meta.id).catch(() => undefined)
+        return
+      }
+      const intent = toServerAction(action)
+      if (!intent) return
+      const response = await submitGameAction(remoteMeta.id, remoteGame.version, intent)
+      const snapshot = response.state ?? response.snapshot
+      if (!snapshot) {
+        await refreshRemoteGame(remoteMeta.id)
+        return
+      }
+      const meta = { ...remoteMeta, version: response.version }
+      setRemoteMeta(meta)
+      const next = adaptRemoteGame({ ok: true, game: meta, snapshot, events: [] })
+      setRemoteGame({ ...next, events: remoteGame.events })
+      void refreshRemoteGame(meta.id).catch(() => undefined)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The city service rejected that action.')
+      void refreshRemoteGame(remoteMeta.id).catch(() => undefined)
+    }
+  }
+
   // The local preview keeps the table lively. Real rooms send the exact same
   // actions to the Edge Function and never run this client-side automation.
   useEffect(() => {
-    if (screen !== 'game' || game.status !== 'active' || game.currentPlayerId === LOCAL_PLAYER_ID) return
+    if (remoteGame || screen !== 'game' || game.status !== 'active' || game.currentPlayerId === LOCAL_PLAYER_ID) return
     const next = chooseAutomatedAction(game)
     if (!next) return
     const timer = window.setTimeout(() => applyAction(next), game.rules.fastAnimations ? 640 : 1_050)
     return () => window.clearTimeout(timer)
-  }, [game, screen])
+  }, [game, remoteGame, screen])
 
   const openDemo = () => {
+    setRemoteGame(null)
+    setRemoteMeta(null)
+    setRemoteConnected(false)
     setGame(createDemoGame())
     setScreen('game')
   }
 
-  const returnFromGame = () => setScreen(user ? 'lobby' : 'auth')
+  const returnFromGame = () => {
+    setRemoteGame(null)
+    setRemoteMeta(null)
+    setRemoteConnected(false)
+    setScreen(user ? 'lobby' : 'auth')
+  }
+
+  const enterRemoteRoom = async (gameId: string, alreadyJoined = false) => {
+    try {
+      if (!alreadyJoined) await joinRoom(gameId)
+      await refreshRemoteGame(gameId)
+      setScreen('game')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That table could not be opened.')
+    }
+  }
+
+  const createRemoteRoom = async (options: CreateRoomOptions) => {
+    try {
+      const room = await createRoom(options)
+      await enterRemoteRoom(room.id, true)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The room could not be created.')
+    }
+  }
+
+  const enterInvite = async (inviteToken: string) => {
+    try {
+      const joined = await joinRoomByInvite(inviteToken)
+      await enterRemoteRoom(joined.game.id, true)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That invite could not be used.')
+    }
+  }
+
+  const shareRemoteInvite = async () => {
+    if (!remoteMeta) return
+    try {
+      const token = await createInvite(remoteMeta.id)
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(token)
+        setNotice('Private invite copied. It can be used once unless you change its limit in Supabase.')
+      } else {
+        setNotice(`Private invite: ${token}`)
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The invite could not be created.')
+    }
+  }
 
   if (loading) {
     return <main className="loading-page"><LoaderCircle className="loading-spinner" size={30} /> Restoring your civic profile…</main>
@@ -151,19 +268,26 @@ export default function App() {
   const lobby = (
     <LobbyScreen
       displayName={displayName}
-      rooms={DEMO_ROOMS}
-      onCreate={() => {
-        setNotice(isSupabaseConfigured ? 'Create-room wiring is ready after you deploy the Supabase functions.' : 'Opening a local host preview.')
-        openDemo()
+      rooms={user && isSupabaseConfigured ? rooms : DEMO_ROOMS}
+      onCreate={(options) => {
+        if (user && isSupabaseConfigured) void createRemoteRoom(options)
+        else openDemo()
       }}
-      onJoin={() => openDemo()}
+      onJoin={(gameId) => {
+        if (user && isSupabaseConfigured) void enterRemoteRoom(gameId)
+        else openDemo()
+      }}
       onJoinByCode={(code) => {
-        if (code.length < 4) setNotice('Invite codes need at least four characters.')
+        if (user && isSupabaseConfigured) void enterInvite(code)
+        else if (code.length < 4) setNotice('Invite codes need at least four characters.')
         else openDemo()
       }}
       onStartDemo={openDemo}
       onSignOut={() => {
         if (user) void signOut()
+        setRemoteGame(null)
+        setRemoteMeta(null)
+        setRemoteConnected(false)
         setScreen('auth')
       }}
     />
@@ -172,7 +296,18 @@ export default function App() {
   return (
     <>
       {screen === 'game' ? (
-        <GameTable game={game} actorId={LOCAL_PLAYER_ID} onAction={applyAction} onExit={returnFromGame} />
+        <Suspense fallback={<main className="loading-page"><LoaderCircle className="loading-spinner" size={30} /> Preparing the city table…</main>}>
+          <GameTable
+            game={remoteGame ?? game}
+            actorId={remoteGame && user ? user.id : LOCAL_PLAYER_ID}
+            connected={remoteGame ? remoteConnected : false}
+            roomTitle={remoteMeta?.title}
+            roomVisibility={remoteMeta?.visibility}
+            onCreateInvite={remoteGame && remoteMeta?.visibility === 'private' ? () => { void shareRemoteInvite() } : undefined}
+            onAction={remoteGame ? (action) => { void applyRemoteAction(action) } : applyAction}
+            onExit={returnFromGame}
+          />
+        </Suspense>
       ) : user || screen === 'lobby' ? (
         lobby
       ) : (

@@ -27,10 +27,23 @@ export type LobbyRoom = {
   host: string
 }
 
+export type CreateRoomOptions = {
+  title: string
+  visibility: 'public' | 'private'
+  maxPlayers: number
+  settings: {
+    turnSeconds: number
+    auctionSeconds: number
+    fastAnimation: boolean
+    jackpotEnabled: boolean
+    startBonus: number
+  }
+}
+
 export type LobbyScreenProps = {
   displayName: string
   rooms: LobbyRoom[]
-  onCreate: () => void
+  onCreate: (options: CreateRoomOptions) => void
   onJoin: (roomId: string) => void
   onJoinByCode: (code: string) => void
   onStartDemo: () => void
@@ -119,6 +132,15 @@ export function LobbyScreen({
   const [query, setQuery] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [codeError, setCodeError] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [roomTitle, setRoomTitle] = useState(`${displayName || 'My'}'s City Table`)
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public')
+  const [maxPlayers, setMaxPlayers] = useState(20)
+  const [turnSeconds, setTurnSeconds] = useState(30)
+  const [auctionSeconds, setAuctionSeconds] = useState(20)
+  const [startBonus, setStartBonus] = useState(200)
+  const [fastAnimation, setFastAnimation] = useState(true)
+  const [jackpotEnabled, setJackpotEnabled] = useState(false)
 
   const publicRooms = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -132,13 +154,26 @@ export function LobbyScreen({
 
   const submitInvite = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const code = inviteCode.trim().toUpperCase()
+    const code = inviteCode.trim()
     if (!code) {
       setCodeError('Enter the invite code from your host.')
       return
     }
     setCodeError('')
     onJoinByCode(code)
+  }
+
+  const submitCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const title = roomTitle.trim()
+    if (title.length < 2) return
+    onCreate({
+      title,
+      visibility,
+      maxPlayers,
+      settings: { turnSeconds, auctionSeconds, fastAnimation, jackpotEnabled, startBonus },
+    })
+    setCreating(false)
   }
 
   return (
@@ -169,7 +204,7 @@ export function LobbyScreen({
               <h1 id="lobby-title" className="cf-lobby-title">Find your next <em>city.</em></h1>
               <p className="cf-lobby-subtitle">Choose an open public table, bring an invite code, or start a new game and set the terms for your skyline.</p>
               <div className="cf-lobby-hero-actions">
-                <button className="cf-lobby-create" type="button" onClick={onCreate}><Plus size={16} /> Create a table</button>
+                <button className="cf-lobby-create" type="button" onClick={() => setCreating(true)}><Plus size={16} /> Create a table</button>
                 <button className="cf-lobby-demo" type="button" onClick={onStartDemo}><Gamepad2 size={16} /> Explore the demo</button>
               </div>
             </div>
@@ -235,16 +270,40 @@ export function LobbyScreen({
               <form className="cf-lobby-code-form" onSubmit={submitInvite} noValidate>
                 <label htmlFor="cf-invite-code">Private table code</label>
                 <div className="cf-lobby-code-row">
-                  <input id="cf-invite-code" value={inviteCode} onChange={(event) => { setInviteCode(event.target.value.toUpperCase()); setCodeError('') }} placeholder="CITY-7K" autoComplete="off" maxLength={24} aria-describedby={codeError ? 'cf-invite-error' : undefined} />
+                  <input id="cf-invite-code" value={inviteCode} onChange={(event) => { setInviteCode(event.target.value); setCodeError('') }} placeholder="Paste invite token" autoComplete="off" maxLength={128} aria-describedby={codeError ? 'cf-invite-error' : undefined} />
                   <button type="submit" aria-label="Join private table"><ArrowRight size={17} /></button>
                 </div>
                 {codeError && <p id="cf-invite-error" className="cf-lobby-code-error" role="alert">{codeError}</p>}
               </form>
-              <div className="cf-lobby-invite-note"><KeyRound size={14} /><span>Codes are case-insensitive. Your seat and city progress are saved when you leave.</span></div>
+              <div className="cf-lobby-invite-note"><KeyRound size={14} /><span>Paste the exact token shared by your host. Your seat and city progress are saved when you leave.</span></div>
             </aside>
           </section>
         </main>
       </div>
+      {creating && (
+        <div className="create-room-backdrop" role="presentation" onMouseDown={() => setCreating(false)}>
+          <form className="create-room-dialog" onSubmit={submitCreate} onMouseDown={(event) => event.stopPropagation()} aria-label="Create a Civic Fortune table">
+            <div className="create-room-heading">
+              <span><Plus size={16} /> HOST A CITY</span>
+              <button type="button" onClick={() => setCreating(false)} aria-label="Close create table dialog">×</button>
+            </div>
+            <h2>Set the terms.</h2>
+            <label>Table name<input type="text" value={roomTitle} minLength={2} maxLength={60} onChange={(event) => setRoomTitle(event.target.value)} required /></label>
+            <div className="create-room-grid">
+              <label>Visibility<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'public' | 'private')}><option value="public">Public lobby</option><option value="private">Invite only</option></select></label>
+              <label>Seats<select value={maxPlayers} onChange={(event) => setMaxPlayers(Number(event.target.value))}><option value={4}>4 players</option><option value={8}>8 players</option><option value={12}>12 players</option><option value={20}>20 players</option></select></label>
+              <label>Turn timer<select value={turnSeconds} onChange={(event) => setTurnSeconds(Number(event.target.value))}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option><option value={60}>60 seconds</option></select></label>
+              <label>Auction timer<select value={auctionSeconds} onChange={(event) => setAuctionSeconds(Number(event.target.value))}><option value={15}>15 seconds</option><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label>
+              <label>Start bonus<select value={startBonus} onChange={(event) => setStartBonus(Number(event.target.value))}><option value={150}>¤150</option><option value={200}>¤200</option><option value={250}>¤250</option><option value={300}>¤300</option></select></label>
+            </div>
+            <div className="create-room-toggles">
+              <label><input type="checkbox" checked={fastAnimation} onChange={(event) => setFastAnimation(event.target.checked)} /> Fast table animations</label>
+              <label><input type="checkbox" checked={jackpotEnabled} onChange={(event) => setJackpotEnabled(event.target.checked)} /> Commons jackpot pot</label>
+            </div>
+            <button className="create-room-submit" type="submit"><Sparkles size={15} /> Open the table</button>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

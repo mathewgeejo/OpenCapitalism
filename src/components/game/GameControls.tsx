@@ -1,28 +1,36 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BadgeDollarSign, Dices, Gavel, HandCoins, Landmark, Pause, Play, SkipForward } from 'lucide-react'
 import { BOARD_BY_ID, getTileAt } from '../../game/board'
-import type { GameAction, GameState } from '../../game/types'
+import type { GameAction, GameViewState } from '../../game/types'
 import { formatCredits, getPlayer, readablePhase } from '../../lib/gamePresentation'
 
 type GameControlsProps = {
-  game: GameState
+  game: GameViewState
   actorId: string
   onAction: (action: GameAction) => void
 }
 
 export function GameControls({ game, actorId, onAction }: GameControlsProps) {
   const [bid, setBid] = useState('')
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!game.turnEndsAt) return
+    const interval = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(interval)
+  }, [game.turnEndsAt])
   const current = getPlayer(game, game.currentPlayerId)
   const isMyTurn = current?.id === actorId
   const player = getPlayer(game, actorId)
   const tile = current ? getTileAt(current.position) : undefined
   const timerPercent = useMemo(() => {
     if (!game.turnEndsAt) return 100
-    const remaining = Math.max(0, game.turnEndsAt - Date.now())
+    const remaining = Math.max(0, game.turnEndsAt - now)
     return Math.min(100, Math.round((remaining / (game.rules.turnTimerSeconds * 1000)) * 100))
-  }, [game.turnEndsAt, game.rules.turnTimerSeconds, game.version])
+  }, [game.turnEndsAt, game.rules.turnTimerSeconds, now])
 
   const primaryAction = (): { label: string; action: GameAction; icon: typeof Dices } | null => {
+    if (game.phase === 'lobby' && game.hostId === actorId) return { label: 'Start table', action: { type: 'START_GAME', playerId: actorId }, icon: Play }
     if (!isMyTurn || !current) return null
     if (game.phase === 'awaitingRoll') return { label: 'Roll dice', action: { type: 'ROLL', playerId: actorId }, icon: Dices }
     if (game.phase === 'awaitingPurchase' && game.pendingPurchase?.playerId === actorId) return { label: `Buy ${tile?.name ?? 'district'}`, action: { type: 'BUY_PROPERTY', playerId: actorId }, icon: BadgeDollarSign }
@@ -93,7 +101,7 @@ function AuctionButtons({
   setBid,
   onAction,
 }: {
-  game: GameState
+  game: GameViewState
   actorId: string
   bid: string
   setBid: (value: string) => void

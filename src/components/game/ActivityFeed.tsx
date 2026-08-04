@@ -1,7 +1,7 @@
-import type { GameState } from '../../game/types'
+import type { GameViewState } from '../../game/types'
 import { eventTimestamp, getPlayer } from '../../lib/gamePresentation'
 
-export function ActivityFeed({ game }: { game: GameState }) {
+export function ActivityFeed({ game }: { game: GameViewState }) {
   const events = [...game.events].slice(-40).reverse()
   return (
     <section className="activity" aria-label="Game activity">

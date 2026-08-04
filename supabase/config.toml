@@ -1,0 +1,41 @@
+project_id = "civic-fortune"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/**"]
+jwt_expiry = 3600
+enable_signup = true
+
+# Every player-facing function verifies the bearer token itself with
+# requireUser(), which keeps local and deployed behavior identical.
+[functions.create-game]
+verify_jwt = false
+[functions.join-game]
+verify_jwt = false
+[functions.join-by-invite]
+verify_jwt = false
+[functions.start-game]
+verify_jwt = false
+[functions.game-snapshot]
+verify_jwt = false
+[functions.game-action]
+verify_jwt = false
+[functions.leave-game]
+verify_jwt = false
+[functions.transfer-host]
+verify_jwt = false
+[functions.create-invite]
+verify_jwt = false
+
+# This endpoint is scheduler-only and is protected by CRON_SECRET rather than
+# a user JWT. Do not expose that secret to a browser or static-site host.
+[functions.resolve-deadlines]
+verify_jwt = false

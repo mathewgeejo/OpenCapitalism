@@ -1,10 +1,10 @@
 import { Building2, Landmark, LockKeyhole, MapPin, Wrench } from 'lucide-react'
 import { BOARD_BY_ID } from '../../game/board'
-import type { GameAction, GameState } from '../../game/types'
+import type { GameAction, GameViewState } from '../../game/types'
 import { formatCredits, getPlayer } from '../../lib/gamePresentation'
 
 type TileInspectorProps = {
-  game: GameState
+  game: GameViewState
   selectedTileId: string | null
   actorId: string
   onAction: (action: GameAction) => void

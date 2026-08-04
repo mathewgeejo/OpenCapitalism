@@ -106,6 +106,8 @@ export interface PrivateGameState {
   civicCursor: number;
   canRollAgain: boolean;
   phaseBeforePause: GamePhase | null;
+  /** Remaining current turn/auction time captured when a host pauses play. */
+  pausedDeadlineRemainingMs: number | null;
 }
 
 export interface PublicPlayerState {

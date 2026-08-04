@@ -229,6 +229,9 @@ export interface PublicGameState extends Omit<GameState, "decks"> {
   deckCounts: Record<CardDeck, number>;
 }
 
+/** State shape safe for visual components: local demos retain decks, remote rooms do not. */
+export type GameViewState = GameState | PublicGameState;
+
 export interface PlayerInput {
   id: PlayerId;
   name: string;

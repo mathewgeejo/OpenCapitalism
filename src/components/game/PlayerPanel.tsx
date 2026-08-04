@@ -1,8 +1,8 @@
-import type { GameState } from '../../game/types'
+import type { GameViewState } from '../../game/types'
 import { formatCredits, getPlayer, getPlayerTile, initials, playerNetWorth } from '../../lib/gamePresentation'
 
 type PlayerPanelProps = {
-  game: GameState
+  game: GameViewState
   selectedPlayerId: string | null
   onSelect: (playerId: string) => void
 }
@@ -49,7 +49,7 @@ export function PlayerPanel({ game, selectedPlayerId, onSelect }: PlayerPanelPro
   )
 }
 
-export function CurrentPlayerSummary({ game }: { game: GameState }) {
+export function CurrentPlayerSummary({ game }: { game: GameViewState }) {
   const player = getPlayer(game, game.currentPlayerId)
   if (!player) return null
   return (

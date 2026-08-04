@@ -98,9 +98,9 @@ function assetState(state: PrivateGameState, tileId: string): AssetState {
   return value;
 }
 
-function assetTile(tileId: string) {
+function assetTile(tileId: string): DistrictTile | Extract<typeof ASSET_TILES[number], { kind: "route" | "works" }> {
   const tile = BOARD_BY_ID.get(tileId);
-  if (!tile || !isAsset(tile)) rule("INVALID_ASSET", "That space is not an asset");
+  if (!tile || !isAsset(tile)) throw new GameRuleError("INVALID_ASSET", "That space is not an asset");
   return tile;
 }
 
@@ -226,7 +226,7 @@ function drawCard(
   let cursor = state[cursorKey];
   if (cursor >= ids.length) cursor = 0;
   const card = (deckKind === "event" ? EVENT_CARD_BY_ID : CIVIC_CARD_BY_ID).get(ids[cursor]);
-  if (!card) rule("STATE_CORRUPT", "Card deck is invalid");
+  if (!card) throw new GameRuleError("STATE_CORRUPT", "Card deck is invalid");
   state[cursorKey] = (cursor + 1) % ids.length;
   events.push({ kind: "card_drawn", actorId: playerId, message: `${playerId} drew ${card.title}`, data: { deck: deckKind, cardId: card.id } });
 
@@ -391,7 +391,7 @@ function endTurn(state: PrivateGameState, ctx: EngineContext, events: PublicGame
 
 function buildOn(state: PrivateGameState, actorId: string, tileId: string, events: PublicGameEvent[]) {
   const tile = assetTile(tileId);
-  if (tile.kind !== "district") rule("INVALID_BUILD", "Only districts can receive supply kits");
+  if (tile.kind !== "district") throw new GameRuleError("INVALID_BUILD", "Only districts can receive supply kits");
   const asset = assetState(state, tileId);
   if (asset.ownerId !== actorId) rule("NOT_OWNER", "You do not own that district");
   if (!ownsEntireDistrict(state, actorId, tile.district)) rule("INCOMPLETE_DISTRICT", "Own the full district before building");
@@ -407,7 +407,7 @@ function buildOn(state: PrivateGameState, actorId: string, tileId: string, event
 
 function sellBuilding(state: PrivateGameState, actorId: string, tileId: string, events: PublicGameEvent[]) {
   const tile = assetTile(tileId);
-  if (tile.kind !== "district") rule("INVALID_BUILD", "Only districts have supply kits");
+  if (tile.kind !== "district") throw new GameRuleError("INVALID_BUILD", "Only districts have supply kits");
   const asset = assetState(state, tileId);
   if (asset.ownerId !== actorId) rule("NOT_OWNER", "You do not own that district");
   if (asset.buildings <= 0) rule("NO_BUILDINGS", "There is no development to sell");
@@ -480,7 +480,7 @@ function transferTrade(state: PrivateGameState, actorId: string, tradeId: string
 
 function bankruptPlayer(state: PrivateGameState, playerId: string, ctx: EngineContext, events: PublicGameEvent[], changes: EngineResult["memberStatusChanges"]) {
   const debt = state.pendingDebt;
-  if (!debt || debt.playerId !== playerId) rule("NO_DEBT", "There is no debt to resolve");
+  if (!debt || debt.playerId !== playerId) throw new GameRuleError("NO_DEBT", "There is no debt to resolve");
   const player = state.players[playerId];
   const creditor = debt.creditorId && state.players[debt.creditorId] && !state.players[debt.creditorId].bankrupt ? debt.creditorId : null;
   if (creditor && player.cash > 0) credit(state, creditor, player.cash);
@@ -539,6 +539,7 @@ export function createInitialGameState(playerIds: string[], settings: GameSettin
     civicCursor: 0,
     canRollAgain: false,
     phaseBeforePause: null,
+    pausedDeadlineRemainingMs: null,
   };
 }
 
@@ -563,9 +564,21 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
   const requireTurn = () => { assertActive(state); assertTurn(state, actorId); };
   const managementPhase = () => assertPhase(state, "await_roll", "await_end_turn");
 
+  // The scheduler resolves expiry, but do not let a late client intent sneak
+  // in during its polling window. The transaction RPC repeats this check under
+  // the row lock so the edge check is not the sole enforcement point.
+  if (state.status === "active" && action.type !== "resolve_deadline") {
+    const deadline = state.auction?.endsAt ?? state.turnDeadlineAt;
+    if (deadline && new Date(deadline).getTime() <= ctx.now.getTime()) {
+      throw new GameRuleError("DEADLINE_EXPIRED", "The turn timer has expired; refresh the board");
+    }
+  }
+
   if (action.type === "pause_game") {
     assertActive(state);
     if (!ctx.isHost) rule("HOST_ONLY", "Only the host can pause the game");
+    const deadline = state.auction?.endsAt ?? state.turnDeadlineAt;
+    state.pausedDeadlineRemainingMs = deadline ? Math.max(0, new Date(deadline).getTime() - ctx.now.getTime()) : null;
     state.phaseBeforePause = state.phase;
     state.phase = "paused";
     state.status = "paused";
@@ -579,7 +592,14 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     state.status = "active";
     state.phase = state.phaseBeforePause ?? "await_roll";
     state.phaseBeforePause = null;
-    setTurnDeadline(state, ctx);
+    if (state.pausedDeadlineRemainingMs !== null) {
+      const resumedDeadline = new Date(ctx.now.getTime() + state.pausedDeadlineRemainingMs).toISOString();
+      state.turnDeadlineAt = resumedDeadline;
+      if (state.auction) state.auction.endsAt = resumedDeadline;
+    } else {
+      setTurnDeadline(state, ctx);
+    }
+    state.pausedDeadlineRemainingMs = null;
     events.push({ kind: "game_resumed", actorId, message: "The host resumed the game", data: {} });
     return { state, events, memberStatusChanges };
   }
@@ -630,7 +650,7 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     assertActive(state);
     assertPhase(state, "await_auction");
     const auction = state.auction;
-    if (!auction) rule("NO_AUCTION", "There is no active auction");
+    if (!auction) throw new GameRuleError("NO_AUCTION", "There is no active auction");
     if (auction.passedPlayerIds.includes(actorId)) rule("AUCTION_PASSED", "You have already passed on this auction");
     if (action.type === "place_bid") {
       if (action.amount < auction.highestBid + 5) rule("BID_TOO_LOW", "Bids must increase by at least $5");
@@ -692,7 +712,7 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     case "buy_asset": {
       assertPhase(state, "await_purchase");
       const purchase = state.pendingPurchase;
-      if (!purchase) rule("NO_PURCHASE", "There is no asset to purchase");
+      if (!purchase) throw new GameRuleError("NO_PURCHASE", "There is no asset to purchase");
       const tile = assetTile(purchase.tileId);
       if (state.players[actorId].cash < purchase.cost) rule("INSUFFICIENT_CASH", "Not enough cash to purchase this asset");
       state.players[actorId].cash -= purchase.cost;
@@ -704,8 +724,9 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     }
     case "decline_asset": {
       assertPhase(state, "await_purchase");
-      if (!state.pendingPurchase) rule("NO_PURCHASE", "There is no asset to decline");
-      startAuction(state, state.pendingPurchase.tileId, ctx, events);
+      const purchase = state.pendingPurchase;
+      if (!purchase) throw new GameRuleError("NO_PURCHASE", "There is no asset to decline");
+      startAuction(state, purchase.tileId, ctx, events);
       return { state, events, memberStatusChanges };
     }
     case "end_turn": {
@@ -769,7 +790,7 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     case "pay_debt": {
       assertPhase(state, "await_debt");
       const debt = state.pendingDebt;
-      if (!debt || debt.playerId !== actorId) rule("NO_DEBT", "You do not have a payable debt");
+      if (!debt || debt.playerId !== actorId) throw new GameRuleError("NO_DEBT", "You do not have a payable debt");
       if (!charge(state, actorId, debt.amount, debt.creditorId, debt.reason, debt.afterPhase, events, debt.addToJackpot)) return { state, events, memberStatusChanges };
       state.pendingDebt = null;
       state.phase = debt.afterPhase;
@@ -781,7 +802,7 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
       return { state, events, memberStatusChanges };
     }
     default:
-      rule("INVALID_ACTION", "That action is not available in the current game state");
+      throw new GameRuleError("INVALID_ACTION", "That action is not available in the current game state");
   }
 }
 

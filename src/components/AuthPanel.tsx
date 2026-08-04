@@ -12,6 +12,7 @@ type Mode = 'sign-in' | 'sign-up'
 
 export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
   const [mode, setMode] = useState<Mode>('sign-in')
+  const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -31,7 +32,10 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
         : await supabase.auth.signUp({
             email,
             password,
-            options: { emailRedirectTo: redirectTo },
+            options: {
+              emailRedirectTo: redirectTo,
+              data: { display_name: displayName.trim() || email.split('@')[0] },
+            },
           })
     setBusy(false)
     if (result.error) onNotice(result.error.message)
@@ -50,6 +54,17 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
     })
     setBusy(false)
     onNotice(error ? error.message : 'Magic link sent. Check your inbox.')
+  }
+
+  const resetPassword = async () => {
+    if (!supabase || !email) {
+      onNotice(!supabase ? requiredSupabaseMessage : 'Enter your email address first.')
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
+    setBusy(false)
+    onNotice(error ? error.message : 'Password reset instructions are on their way.')
   }
 
   const signInWithGoogle = async () => {
@@ -100,6 +115,13 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
           <div className="divider"><span>or continue with email</span></div>
 
           <form className="auth-form" onSubmit={submit}>
+            {mode === 'sign-up' && (
+              <label>
+                Display name
+                <span className="field-icon"><Sparkles size={16} /></span>
+                <input value={displayName} type="text" autoComplete="nickname" minLength={2} maxLength={30} placeholder="How the table will know you" onChange={(event) => setDisplayName(event.target.value)} required />
+              </label>
+            )}
             <label>
               Email
               <span className="field-icon"><Mail size={16} /></span>
@@ -118,9 +140,12 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
 
           <div className="auth-actions">
             <button type="button" onClick={magicLink} disabled={busy}>Email me a magic link</button>
-            <button type="button" onClick={() => setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in')}>
-              {mode === 'sign-in' ? 'New here? Create an account' : 'Already registered? Sign in'}
-            </button>
+            <span className="auth-actions-right">
+              {mode === 'sign-in' && <button type="button" onClick={resetPassword} disabled={busy}>Forgot password?</button>}
+              <button type="button" onClick={() => setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in')}>
+                {mode === 'sign-in' ? 'New here? Create an account' : 'Already registered? Sign in'}
+              </button>
+            </span>
           </div>
 
           {!isSupabaseConfigured && (

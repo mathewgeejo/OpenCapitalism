@@ -191,7 +191,7 @@ function normalisePlayers(game: BoardGameState): VisualPlayer[] {
     cash: numberValue(player.cash ?? player.money ?? player.balance),
     position: Math.max(0, numberValue(player.position ?? player.boardPosition ?? player.location)),
     color: stringValue(player.color, PLAYER_COLORS[index % PLAYER_COLORS.length]),
-    isBankrupt: booleanValue(player.isBankrupt ?? player.bankrupt ?? player.eliminated),
+    isBankrupt: booleanValue(player.isBankrupt ?? player.bankrupt ?? player.eliminated) || player.status === 'bankrupt',
     propertyIds: asArray(player.propertyIds ?? player.ownedPropertyIds ?? player.properties).map((id) => String(id)),
   }));
 }

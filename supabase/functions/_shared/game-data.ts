@@ -127,6 +127,8 @@ export async function ensureProfile(client: SupabaseClient, user: User): Promise
   const base = (metadataName || user.email?.split("@")[0] || "Player").slice(0, 20);
   const displayName = `${base.length >= 2 ? base : "Player"}-${user.id.slice(0, 8)}`;
   const insert = await client.from("profiles").insert({ id: user.id, display_name: displayName, avatar_color: "#4f8cff" }).select("id,display_name,avatar_color").single();
+  const profile = insert.data;
   if (insert.error) databaseError(insert.error);
-  return { id: user.id, displayName: insert.data.display_name, avatarColor: insert.data.avatar_color, seat: 0, memberStatus: "joined" };
+  if (!profile) throw new HttpError(500, "PROFILE_CREATE_FAILED", "Profile creation returned no row");
+  return { id: user.id, displayName: profile.display_name, avatarColor: profile.avatar_color, seat: 0, memberStatus: "joined" };
 }

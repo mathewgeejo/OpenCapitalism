@@ -30,9 +30,36 @@ serve((request) => withHttpErrors(request, async () => {
   const admin = serviceClient();
   const bundle = await loadGameBundle(admin, body.gameId);
   requireGameMember(bundle, user.id);
+  // Check the durable receipt before rejecting a stale knownVersion. Network
+  // retries therefore receive the already-committed state instead of looking
+  // like a failed roll/purchase after another player has moved the version.
+  const receiptResult = await admin
+    .from("game_action_receipts")
+    .select("applied_version")
+    .eq("game_id", body.gameId)
+    .eq("actor_id", user.id)
+    .eq("client_action_id", body.clientActionId)
+    .maybeSingle();
+  if (receiptResult.error) throw new HttpError(500, "RECEIPT_LOOKUP_FAILED", "Could not verify the action retry");
+  if (receiptResult.data) {
+    return json(request, {
+      ok: true,
+      duplicate: true,
+      version: bundle.game.state_version,
+      committedVersion: receiptResult.data.applied_version,
+      reconcile: true,
+      snapshot: bundle.publicSnapshot,
+      state: bundle.publicSnapshot,
+      events: [],
+    });
+  }
   const knownVersion = body.knownVersion as number;
   if (bundle.game.state_version !== knownVersion || bundle.privateVersion !== knownVersion || bundle.publicVersion !== knownVersion) {
     throw new HttpError(409, "STALE_VERSION", "The board changed; refresh and try again", { currentVersion: bundle.game.state_version });
+  }
+  if (action.type !== "resolve_deadline" && bundle.game.status === "active" && bundle.game.turn_deadline_at
+    && new Date(bundle.game.turn_deadline_at).getTime() <= Date.now()) {
+    throw new HttpError(409, "DEADLINE_EXPIRED", "The turn timer expired; refresh to resolve it", { currentVersion: bundle.game.state_version });
   }
 
   let result;
@@ -75,8 +102,25 @@ serve((request) => withHttpErrors(request, async () => {
   }
   const commit = rpcResultOrThrow(data);
   if (commit.duplicate === true) {
-    return json(request, { ok: true, duplicate: true, version: commit.version, reconcile: true });
+    const reconciled = await loadGameBundle(admin, body.gameId);
+    return json(request, {
+      ok: true,
+      duplicate: true,
+      version: reconciled.game.state_version,
+      reconcile: true,
+      snapshot: reconciled.publicSnapshot,
+      state: reconciled.publicSnapshot,
+      events: [],
+    });
   }
   await publishGameUpdate(admin, body.gameId, { version: commit.version, eventIds: commit.eventIds, event: "game-updated" });
-  return json(request, { ok: true, duplicate: false, version: commit.version, eventIds: commit.eventIds, snapshot });
+  return json(request, {
+    ok: true,
+    duplicate: false,
+    version: commit.version,
+    eventIds: commit.eventIds,
+    snapshot,
+    state: snapshot,
+    events,
+  });
 }));
