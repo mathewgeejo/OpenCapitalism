@@ -59,7 +59,7 @@ export function subscribeToGameVersion(
     .channel(`game:${gameId}`, { config: { private: true } })
     .on('broadcast', { event: 'game-updated' }, ({ payload }) => onSignal(payload as GameVersionSignal))
     .on('broadcast', { event: 'lobby-updated' }, ({ payload }) => onSignal(payload as GameVersionSignal))
-    .on('presence', { event: 'sync' }, () => onConnection?.(true, Object.keys(channel.presenceState()).length))
+    .on('presence', { event: 'sync' }, () => undefined)
 
   void client.auth.getSession().then(({ data }) => {
     if (data.session?.access_token) client.realtime.setAuth(data.session.access_token)

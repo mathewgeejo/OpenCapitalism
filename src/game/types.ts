@@ -73,6 +73,8 @@ export interface Player {
   doublesRolled: number;
   /** Denormalized convenience field; the engine keeps it aligned with properties. */
   propertyIds: TileId[];
+  /** Server-projected net worth for remote rooms, when available. */
+  netWorth?: number;
   joinedAt: number;
 }
 

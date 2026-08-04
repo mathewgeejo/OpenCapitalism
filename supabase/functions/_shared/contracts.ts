@@ -142,6 +142,8 @@ export interface PublicGameSnapshot {
   players: PublicPlayerState[];
   assets: PublicAssetState[];
   pendingPurchase: { tileId: string; cost: number } | null;
+  /** Owed amount is public; deck order and private trade terms are not. */
+  debt: { playerId: string; amount: number; reason: string } | null;
   auction: {
     tileId: string;
     highestBid: number;
@@ -152,6 +154,29 @@ export interface PublicGameSnapshot {
   trades: Array<{ id: string; fromUserId: string; toUserId: string; expiresAt: string }>;
   jackpot: number;
   lastRoll: { playerId: string; dice: [number, number] } | null;
+}
+
+/**
+ * Terms are deliberately absent from the durable/public snapshot. An Edge
+ * Function adds these only when the snapshot is being returned to one of the
+ * two parties to an open trade.
+ */
+export interface ViewerTradeDetails {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  offerCash: number;
+  requestCash: number;
+  offerTileIds: string[];
+  requestTileIds: string[];
+  expiresAt: string;
+}
+
+/** Response-only extension; never persist this object in game_public_snapshots. */
+export interface ViewerGameSnapshot extends PublicGameSnapshot {
+  tradeDetails: ViewerTradeDetails[];
+  /** Lobby/reconnect roster, including joined players not yet in turnOrder. */
+  members?: PlayerMeta[];
 }
 
 export interface PublicGameEvent {

@@ -51,7 +51,9 @@ dice, ownership, deck order, or turn state directly.
    ```
 
    The resolver is idempotent under races: it reloads the versioned state and
-   the commit RPC rejects a concurrent action that won first.
+   the commit RPC rejects a concurrent action that won first. It resolves both
+   expired turns and the earliest pending trade expiry, so timed-out offers are
+   removed from canonical state even if no player clicks a control.
 
 ## Browser function contract
 
@@ -64,7 +66,7 @@ token as `Authorization: Bearer <access-token>`. All bodies are JSON.
 | `join-game` | `{ gameId, inviteToken? }` | Seat, lobby metadata, and roster. A private room requires the raw one-time invite token. |
 | `join-by-invite` | `{ inviteToken }` | Same join response, for a code-entry UI that does not know the game UUID. |
 | `start-game` | `{ gameId, knownVersion }` | Host only; starts a lobby with at least two seats and returns `{ version, snapshot }`. |
-| `game-snapshot` | `GET ?gameId=<uuid>&afterEventId=<optional bigint>` | `{ game, members, snapshot, events }`; use it on entry, refresh, reconnect, or a skipped version. |
+| `game-snapshot` | `GET ?gameId=<uuid>&afterEventId=<optional bigint>` or `POST { gameId, afterEventId? }` | `{ game, members, snapshot, events }`; use it on entry, refresh, reconnect, or a skipped version. |
 | `game-action` | `{ gameId, knownVersion, clientActionId, action }` | Authoritative state transition. Returns `{ version, eventIds, snapshot }`; retry the same `clientActionId` safely. |
 | `leave-game` | `{ gameId }` | Leaves only a lobby. Active games preserve the seat for reconnect; use in-game bankruptcy/concession flow instead. |
 | `transfer-host` | `{ gameId, targetUserId }` | Current host transfers host role to a joined player. |
@@ -88,6 +90,21 @@ For the authenticated public-room browser, call `supabase.rpc('list_public_civic
 
 Every action is validated against the server-loaded private state. Dice and
 deck shuffles use `crypto.getRandomValues` only inside Edge Functions.
+Public snapshots include a safe pending `debt` projection (`playerId`, `amount`,
+and `reason`) so the current player can choose `pay_debt` or
+`declare_bankruptcy`; creditor/internal continuation fields stay server-only.
+The response-only `snapshot.members` roster includes all current room members,
+which is especially important while a lobby has not yet built its final
+turn-order. Each member gets a room-local seat color from a 20-color palette;
+changing a seat never changes their global profile color.
+
+Open trade metadata (`id`, parties, expiry) is visible to room members, but the
+cash and asset terms are not persisted in `game_public_snapshots`. A signed-in
+proposer or recipient receives only their own terms in
+`snapshot.tradeDetails`; every other member receives an empty array. Clients
+should treat `SNAPSHOT_RETRY` (HTTP 409) as a short, safe refetch: the backend
+uses bounded version-consistency reads and never intentionally returns a game
+row and snapshot from different versions.
 
 ## Realtime contract
 
@@ -122,3 +139,9 @@ Fortune board. `functions/_shared/engine.ts` is a pure transition layer used
 by Edge Functions; its public projection removes card/deck order, debt
 details, and unaccepted trade terms. The frontend should mirror the public
 board definitions for rendering but must treat `game-snapshot` as truth.
+
+For an engine-only smoke test (no Supabase project required):
+
+```sh
+npx --yes deno@2.5.0 test supabase/functions/_shared/engine_test.ts
+```

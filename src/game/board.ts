@@ -29,7 +29,7 @@ const transit = (index: number, id: string, name: string): Tile => ({
   kind: "transit",
   color: "#334155",
   price: 220,
-  rent: [30, 60, 120, 240],
+  rent: [25, 50, 100, 200],
   description: "A civic transit route. Rent rises as routes are connected.",
 });
 

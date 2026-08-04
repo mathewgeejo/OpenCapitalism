@@ -36,11 +36,11 @@ import { GameRuleError } from "./types";
 
 export const DEFAULT_RULES: Readonly<GameRules> = Object.freeze({
   maxPlayers: 20,
-  startingCash: 1_800,
+  startingCash: 1_500,
   startBonus: 200,
   turnTimerSeconds: 30,
   auctionSeconds: 30,
-  detentionFee: 80,
+  detentionFee: 50,
   jackpotEnabled: false,
   fastAnimations: false,
 });
@@ -363,6 +363,8 @@ const calculateRent = (state: GameState, tile: Tile, property: PropertyState): n
 const movePlayerBy = (state: GameState, player: Player, spaces: number, now: number, context: EngineContext): void => {
   const startPosition = player.position;
   const rawDestination = startPosition + spaces;
+  // Passing or arriving at Founders' Plaza pays here. The landing resolver
+  // deliberately has no second Start payment.
   const passedStart = spaces > 0 ? Math.floor(rawDestination / BOARD_SIZE) : 0;
   player.position = ((rawDestination % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
   if (passedStart > 0) {
@@ -580,6 +582,12 @@ const assertManageablePhase = (state: GameState): void => {
   rule(!state.debt, "OUTSTANDING_DEBT", "Resolve outstanding debt first.");
 };
 
+const assertLiquidationPhase = (state: GameState, playerId: PlayerId): void => {
+  const normalTurn = state.phase === "awaitingRoll" || state.phase === "awaitingEndTurn";
+  const resolvingOwnDebt = state.phase === "awaitingDebt" && state.debt?.playerId === playerId;
+  rule(normalTurn || resolvingOwnDebt, "ACTION_NOT_AVAILABLE", "Only the active player may liquidate assets during their turn or debt resolution.");
+};
+
 const assertOwner = (state: GameState, playerId: PlayerId, tileId: TileId): { player: Player; tile: Tile; property: PropertyState } => {
   const player = requireCurrentPlayer(state, playerId);
   const tile = getTileById(tileId);
@@ -777,7 +785,7 @@ const executeBuild = (state: GameState, action: Extract<GameAction, { type: "BUI
 };
 
 const executeSellBuilding = (state: GameState, action: Extract<GameAction, { type: "SELL_BUILDING" }>, now: number, context: EngineContext): void => {
-  assertManageablePhase(state);
+  assertLiquidationPhase(state, action.playerId);
   const { player, tile, property } = assertOwner(state, action.playerId, action.tileId);
   rule(isDistrictTile(tile), "NOT_BUILDABLE", "Only district buildings can be sold.");
   rule(property.buildings > 0, "NO_BUILDINGS", "There are no buildings to sell here.");
@@ -791,7 +799,7 @@ const executeSellBuilding = (state: GameState, action: Extract<GameAction, { typ
 };
 
 const executeMortgage = (state: GameState, action: Extract<GameAction, { type: "MORTGAGE" }>, now: number, context: EngineContext): void => {
-  assertManageablePhase(state);
+  assertLiquidationPhase(state, action.playerId);
   const { player, tile, property } = assertOwner(state, action.playerId, action.tileId);
   rule(!property.mortgaged, "ALREADY_MORTGAGED", "This property is already mortgaged.");
   rule(!groupHasBuildings(state, tile), "GROUP_HAS_BUILDINGS", "Sell all buildings in this district group before mortgaging.");
@@ -886,7 +894,7 @@ const executeUseDetentionPass = (state: GameState, action: Extract<GameAction, {
 
 const executeOfferTrade = (state: GameState, action: Extract<GameAction, { type: "OFFER_TRADE" }>, now: number, context: EngineContext): void => {
   requireActiveGame(state);
-  rule(!state.debt && state.phase !== "auction", "TRADE_NOT_AVAILABLE", "Trades are unavailable while a debt or auction is active.");
+  rule(state.phase !== "auction" && (!state.debt || state.debt.playerId === action.playerId), "TRADE_NOT_AVAILABLE", "Only the debtor may offer a trade while a debt is active, and trades are unavailable during auctions.");
   const from = getRequiredPlayer(state, action.playerId);
   const to = getRequiredPlayer(state, action.toPlayerId);
   rule(from.id !== to.id, "INVALID_TRADE", "A player cannot trade with themselves.");

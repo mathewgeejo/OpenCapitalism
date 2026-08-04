@@ -6,7 +6,7 @@ export function formatCredits(amount: number): string {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
-  }).format(amount).replace('$', '¤')
+  }).format(amount)
 }
 
 export function getPlayer(game: GameViewState, playerId: string | null | undefined): Player | undefined {
@@ -18,12 +18,13 @@ export function getPlayerTile(game: GameViewState, player: Player): Tile {
 }
 
 export function playerNetWorth(game: GameViewState, player: Player): number {
+  if (typeof player.netWorth === 'number') return player.netWorth
   return player.cash + player.propertyIds.reduce((total, tileId) => {
     const tile = BOARD_BY_ID[tileId]
     const property = game.properties[tileId]
     if (!tile?.price || !property) return total
-    const buildingValue = property.buildings * (tile.buildCost ?? 0) * .5
-    return total + Math.floor(tile.price * .5) + buildingValue
+    const buildingValue = property.buildings * (tile.buildCost ?? 0)
+    return total + (property.mortgaged ? Math.floor(tile.price * .5) : tile.price) + buildingValue
   }, 0)
 }
 

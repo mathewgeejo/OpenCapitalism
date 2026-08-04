@@ -1,14 +1,23 @@
-import { Billboard, OrbitControls, RoundedBox, Text } from '@react-three/drei';
+import { OrbitControls, RoundedBox, Text } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useFrame } from '@react-three/fiber';
-import { memo, useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { Group } from 'three';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+import { Color, Matrix4, type Group, type InstancedMesh } from 'three';
 import type { GameState, PublicGameState } from '../../game/types';
 import { BOARD } from '../../game/board';
 
 /**
- * The renderer deliberately consumes the public portion of GameState only.  The
- * small adapters below accept a few equivalent public field names so that an old
- * snapshot can still be displayed while a realtime client is catching up.
+ * The renderer deliberately consumes the public portion of GameState only. The
+ * small adapters below accept a few equivalent public field names so an older
+ * snapshot can remain visible while a realtime client catches up.
  */
 type UnknownRecord = Record<string, unknown>;
 type BoardGameState = GameState | PublicGameState;
@@ -47,6 +56,16 @@ type BoardLayout = {
   corner: boolean;
 };
 
+type CityBox = {
+  x: number;
+  y: number;
+  z: number;
+  width: number;
+  height: number;
+  depth: number;
+  color: string;
+};
+
 export type BoardView = '3d' | 'table';
 
 export interface Board3DProps {
@@ -58,9 +77,9 @@ export interface Board3DProps {
   onSelectSpace?: (spaceId: string) => void;
   /** Use the accessible flat board if WebGL is unavailable or a player prefers it. */
   view?: BoardView;
-  /** Stops token bobbing and keeps the camera static without sacrificing context. */
+  /** Stops token travel/bobbing and keeps the camera static without sacrificing context. */
   reducedMotion?: boolean;
-  /** Enables expensive canvas shadows on capable devices. */
+  /** Enables canvas shadows on capable devices. */
   shadows?: boolean;
   /** Optional inline container styles, for placement in a room shell. */
   style?: CSSProperties;
@@ -72,28 +91,11 @@ const EDGE_DEPTH = 2.4;
 const EDGE_PITCH = (BOARD_HALF * 2 - CORNER_SIZE * 2) / 12;
 const CORNER_CENTER = BOARD_HALF - CORNER_SIZE / 2;
 const EDGE_CENTER = BOARD_HALF - EDGE_DEPTH / 2;
+const BOARD_SIZE = 52;
 
 const PLAYER_COLORS = [
-  '#ff6b65',
-  '#4cc9f0',
-  '#ffd166',
-  '#80ed99',
-  '#c77dff',
-  '#f9844a',
-  '#5eead4',
-  '#fb7185',
-  '#a3e635',
-  '#60a5fa',
-  '#f9a8d4',
-  '#facc15',
-  '#67e8f9',
-  '#c4b5fd',
-  '#fdba74',
-  '#86efac',
-  '#fda4af',
-  '#93c5fd',
-  '#d8b4fe',
-  '#bef264',
+  '#ff6b65', '#4cc9f0', '#ffd166', '#80ed99', '#c77dff', '#f9844a', '#5eead4', '#fb7185', '#a3e635', '#60a5fa',
+  '#f9a8d4', '#facc15', '#67e8f9', '#c4b5fd', '#fdba74', '#86efac', '#fda4af', '#93c5fd', '#d8b4fe', '#bef264',
 ];
 
 const SPACE_COLORS: Record<string, string> = {
@@ -111,8 +113,10 @@ const SPACE_COLORS: Record<string, string> = {
   corner: '#0369a1',
   start: '#0369a1',
   detention: '#7f1d1d',
+  festival: '#15803d',
   rest: '#15803d',
   jackpot: '#b45309',
+  gotodetention: '#7f1d1d',
 };
 
 const CITY_BLOCKS = [
@@ -130,6 +134,68 @@ const CITY_BLOCKS = [
   [-0.9, 3.55, 2.7, 1.15, '#0f766e'],
   [2.35, 3.55, 2.3, 1.15, '#1d4ed8'],
 ] as const;
+
+const CITY_FOUNDATIONS: readonly CityBox[] = CITY_BLOCKS.map(([x, z, width, depth]) => ({
+  x,
+  y: 0.12,
+  z,
+  width,
+  height: 0.08,
+  depth,
+  color: '#0b1627',
+}));
+
+const CITY_BUILDINGS: readonly CityBox[] = CITY_BLOCKS.flatMap(([x, z, width, depth, color], index): CityBox[] => [
+  {
+    x: x + width * 0.16,
+    y: 0.3 + (index % 3) * 0.07,
+    z: z - depth * 0.08,
+    width: Math.min(0.52, width * 0.34),
+    height: 0.38 + (index % 3) * 0.14,
+    depth: Math.min(0.48, depth * 0.36),
+    color,
+  },
+  {
+    x: x - width * 0.19,
+    y: 0.22 + ((index + 1) % 2) * 0.05,
+    z: z + depth * 0.16,
+    width: Math.min(0.42, width * 0.29),
+    height: 0.25 + ((index + 1) % 2) * 0.1,
+    depth: Math.min(0.38, depth * 0.3),
+    color: index % 2 === 0 ? '#dbeafe' : '#f8fafc',
+  },
+]);
+
+const CITY_ROADS: readonly CityBox[] = [
+  { x: 0, y: 0.142, z: -2.7, width: 9.1, height: 0.025, depth: 0.16, color: '#2b3b52' },
+  { x: 0, y: 0.142, z: 0.05, width: 9.1, height: 0.025, depth: 0.18, color: '#2b3b52' },
+  { x: 0, y: 0.142, z: 2.95, width: 9.1, height: 0.025, depth: 0.16, color: '#2b3b52' },
+  { x: -2.8, y: 0.143, z: 0.2, width: 0.16, height: 0.026, depth: 8.8, color: '#2b3b52' },
+  { x: 1.95, y: 0.143, z: 0.2, width: 0.16, height: 0.026, depth: 8.8, color: '#2b3b52' },
+];
+
+const CITY_TREES = [
+  [-4.75, -2.25], [-4.75, 1.6], [-2.85, 4.45], [-0.15, 4.45], [2.35, 4.45], [4.75, 2.5], [4.75, -1.9],
+  [-4.65, -4.25], [4.6, -4.15], [-4.55, 4.2], [4.55, 4.15], [-1.2, -4.4], [1.45, -4.4],
+] as const;
+
+const TREE_TRUNKS: readonly CityBox[] = CITY_TREES.map(([x, z]) => ({ x, y: 0.25, z, width: 0.06, height: 0.32, depth: 0.06, color: '#7c4a2d' }));
+const TREE_CROWNS: readonly CityBox[] = CITY_TREES.map(([x, z], index) => ({
+  x,
+  y: 0.53,
+  z,
+  width: index % 2 === 0 ? 0.32 : 0.38,
+  height: index % 3 === 0 ? 0.38 : 0.32,
+  depth: index % 2 === 0 ? 0.32 : 0.38,
+  color: index % 2 === 0 ? '#2f855a' : '#3f9d68',
+}));
+
+const FRAME_RAILS: readonly CityBox[] = [
+  { x: 0, y: 0.17, z: 10.25, width: 20.55, height: 0.05, depth: 0.07, color: '#d6a84a' },
+  { x: 0, y: 0.17, z: -10.25, width: 20.55, height: 0.05, depth: 0.07, color: '#d6a84a' },
+  { x: 10.25, y: 0.17, z: 0, width: 0.07, height: 0.05, depth: 20.55, color: '#d6a84a' },
+  { x: -10.25, y: 0.17, z: 0, width: 0.07, height: 0.05, depth: 20.55, color: '#d6a84a' },
+];
 
 function asRecord(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -168,7 +234,7 @@ function normaliseBoard(): VisualSpace[] {
     ? source
     : asArray(sourceRecord?.spaces ?? sourceRecord?.tiles ?? sourceRecord?.board);
 
-  return rawSpaces.slice(0, 52).map((value, position) => {
+  return rawSpaces.slice(0, BOARD_SIZE).map((value, position) => {
     const space = asRecord(value) ?? {};
     return {
       id: stringValue(space.id ?? space.spaceId ?? space.key, `space-${position}`),
@@ -199,12 +265,7 @@ function normalisePlayers(game: BoardGameState): VisualPlayer[] {
 function normaliseProperties(game: BoardGameState, players: VisualPlayer[]): Map<string, PropertyVisualState> {
   const snapshot = asRecord(game) ?? {};
   const result = new Map<string, PropertyVisualState>();
-  const sources = [
-    snapshot.properties,
-    snapshot.propertyStates,
-    snapshot.assets,
-    snapshot.ownership,
-  ];
+  const sources = [snapshot.properties, snapshot.propertyStates, snapshot.assets, snapshot.ownership];
 
   for (const source of sources) {
     const record = asRecord(source);
@@ -240,8 +301,12 @@ function activePlayerId(game: BoardGameState): string | undefined {
   return stringValue(snapshot.activePlayerId ?? snapshot.currentPlayerId ?? turn?.playerId) || undefined;
 }
 
+function normaliseIndex(index: number): number {
+  return ((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+}
+
 function layoutForSpace(index: number): BoardLayout {
-  const position = ((index % 52) + 52) % 52;
+  const position = normaliseIndex(index);
   const along = (step: number) => BOARD_HALF - CORNER_SIZE - EDGE_PITCH * (step - 0.5);
 
   if (position === 0) return { x: CORNER_CENTER, z: CORNER_CENTER, width: CORNER_SIZE, depth: CORNER_SIZE, rotation: 0, corner: true };
@@ -264,14 +329,16 @@ function playerOffset(slot: number, layout: BoardLayout): [number, number] {
   const row = Math.floor(slot / columns) % 3;
   const spreadX = layout.corner ? 0.58 : 0.25;
   const spreadZ = layout.corner ? 0.58 : 0.48;
-  return [
-    (col - (columns - 1) / 2) * spreadX,
-    (row - 1) * spreadZ,
-  ];
+  return [(col - (columns - 1) / 2) * spreadX, (row - 1) * spreadZ];
+}
+
+function boardPoint(index: number, offsetX: number, offsetZ: number): [number, number] {
+  const layout = layoutForSpace(index);
+  return [layout.x + offsetX, layout.z + offsetZ];
 }
 
 function tablePlacement(index: number): { gridColumn: number; gridRow: number } {
-  const position = ((index % 52) + 52) % 52;
+  const position = normaliseIndex(index);
   if (position === 0) return { gridColumn: 14, gridRow: 14 };
   if (position <= 12) return { gridColumn: 14 - position, gridRow: 14 };
   if (position === 13) return { gridColumn: 1, gridRow: 14 };
@@ -282,38 +349,139 @@ function tablePlacement(index: number): { gridColumn: number; gridRow: number } 
   return { gridColumn: 14, gridRow: position - 38 };
 }
 
-function BuildingCluster({ count, tint }: { count: number; tint: string }) {
+function spaceCaption(space: VisualSpace): string {
+  if (typeof space.price === 'number') return `$${space.price.toLocaleString('en-US')}`;
+  if (space.kind === 'event') return 'EVENT';
+  if (space.kind === 'civic') return 'CIVIC';
+  if (space.kind === 'levy' || space.kind === 'tax') return 'LEVY';
+  if (space.kind === 'transit' || space.kind === 'route') return 'ROUTE';
+  if (space.kind === 'utility' || space.kind === 'works') return 'WORKS';
+  if (space.kind === 'start') return 'DIVIDEND';
+  if (space.kind === 'detention' || space.kind === 'gotodetention') return 'CIVIC HOLD';
+  if (space.kind === 'festival' || space.kind === 'rest') return 'COMMONS';
+  return space.kind.toUpperCase();
+}
+
+function spaceGlyph(space: VisualSpace): string {
+  if (typeof space.price === 'number') return '$';
+  if (space.kind === 'event') return '?';
+  if (space.kind === 'civic') return 'C';
+  if (space.kind === 'transit' || space.kind === 'route') return 'R';
+  if (space.kind === 'utility' || space.kind === 'works') return 'W';
+  if (space.kind === 'levy' || space.kind === 'tax') return '$';
+  if (space.kind === 'start') return '+';
+  if (space.kind === 'detention' || space.kind === 'gotodetention') return '!';
+  return '*';
+}
+
+const InstancedBoxes = memo(function InstancedBoxes({
+  items,
+  roughness = 0.56,
+  metalness = 0.08,
+  shadows = true,
+}: {
+  items: readonly CityBox[];
+  roughness?: number;
+  metalness?: number;
+  shadows?: boolean;
+}) {
+  const mesh = useRef<InstancedMesh>(null);
+  const matrix = useMemo(() => new Matrix4(), []);
+  const color = useMemo(() => new Color(), []);
+
+  useLayoutEffect(() => {
+    const instance = mesh.current;
+    if (!instance) return;
+    items.forEach((item, index) => {
+      matrix.makeScale(item.width, item.height, item.depth);
+      matrix.setPosition(item.x, item.y, item.z);
+      instance.setMatrixAt(index, matrix);
+      instance.setColorAt(index, color.set(item.color));
+    });
+    instance.instanceMatrix.needsUpdate = true;
+    if (instance.instanceColor) instance.instanceColor.needsUpdate = true;
+    instance.computeBoundingSphere();
+  }, [color, items, matrix]);
+
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, items.length]} castShadow={shadows} receiveShadow={shadows}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial vertexColors roughness={roughness} metalness={metalness} />
+    </instancedMesh>
+  );
+});
+
+function House({ x, z, tint }: { x: number; z: number; tint: string }) {
+  return (
+    <group position={[x, 0, z]}>
+      <mesh castShadow>
+        <boxGeometry args={[0.19, 0.18, 0.17]} />
+        <meshStandardMaterial color={tint} roughness={0.4} metalness={0.13} />
+      </mesh>
+      <mesh position={[0, 0.15, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+        <coneGeometry args={[0.155, 0.16, 4]} />
+        <meshStandardMaterial color="#f8fafc" roughness={0.36} metalness={0.07} />
+      </mesh>
+      <mesh position={[0, 0.03, 0.091]}>
+        <planeGeometry args={[0.055, 0.065]} />
+        <meshStandardMaterial color="#fef3c7" emissive="#f59e0b" emissiveIntensity={0.22} />
+      </mesh>
+    </group>
+  );
+}
+
+const BuildingCluster = memo(function BuildingCluster({ count, tint }: { count: number; tint: string }) {
   if (count <= 0) return null;
+
   if (count >= 5) {
     return (
-      <group position={[0, 0.31, -0.22]}>
+      <group position={[0, 0.31, -0.06]}>
         <mesh castShadow>
-          <boxGeometry args={[0.34, 0.62, 0.34]} />
-          <meshStandardMaterial color={tint} roughness={0.42} metalness={0.15} />
+          <boxGeometry args={[0.42, 0.67, 0.38]} />
+          <meshStandardMaterial color={tint} roughness={0.32} metalness={0.25} />
         </mesh>
-        <mesh position={[0, 0.38, 0]} castShadow>
-          <coneGeometry args={[0.28, 0.22, 4]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.38} />
+        <mesh position={[0, 0.4, 0]} castShadow>
+          <coneGeometry args={[0.31, 0.24, 4]} />
+          <meshStandardMaterial color="#e7c36a" roughness={0.28} metalness={0.42} />
+        </mesh>
+        <mesh position={[0, 0.06, 0.196]}>
+          <planeGeometry args={[0.23, 0.35]} />
+          <meshStandardMaterial color="#fef3c7" emissive="#f59e0b" emissiveIntensity={0.33} />
         </mesh>
       </group>
     );
   }
 
   const positions: [number, number][] = [
-    [-0.18, -0.12],
-    [0.18, -0.12],
-    [-0.18, 0.18],
-    [0.18, 0.18],
+    [-0.21, -0.18], [0.21, -0.18], [-0.21, 0.18], [0.21, 0.18],
   ];
 
   return (
-    <group position={[0, 0.28, -0.22]}>
-      {positions.slice(0, count).map(([x, z], index) => (
-        <mesh key={index} position={[x, 0, z]} castShadow>
-          <boxGeometry args={[0.17, 0.2, 0.16]} />
-          <meshStandardMaterial color={tint} roughness={0.55} />
-        </mesh>
-      ))}
+    <group position={[0, 0.3, -0.02]}>
+      {positions.slice(0, count).map(([x, z], index) => <House key={index} x={x} z={z} tint={tint} />)}
+    </group>
+  );
+});
+
+function SelectionGlow({ width, depth, reducedMotion }: { width: number; depth: number; reducedMotion: boolean }) {
+  const glow = useRef<Group>(null);
+
+  useFrame(({ clock }) => {
+    if (!glow.current || reducedMotion) return;
+    const pulse = 1 + Math.sin(clock.elapsedTime * 3.2) * 0.035;
+    glow.current.scale.set(pulse, 1, pulse);
+  });
+
+  return (
+    <group ref={glow} position={[0, 0.19, 0]}>
+      <mesh>
+        <boxGeometry args={[width * 0.985, 0.018, depth * 0.975]} />
+        <meshBasicMaterial color="#f5d66f" transparent opacity={0.37} depthWrite={false} />
+      </mesh>
+      <mesh position={[0, 0.012, 0]}>
+        <boxGeometry args={[width * 0.93, 0.008, depth * 0.91]} />
+        <meshBasicMaterial color="#fff7c4" transparent opacity={0.14} depthWrite={false} />
+      </mesh>
     </group>
   );
 }
@@ -332,64 +500,139 @@ function Token({
   reducedMotion: boolean;
 }) {
   const token = useRef<Group>(null);
+  const previousPosition = useRef(normaliseIndex(player.position));
+  const hasMounted = useRef(false);
+  const travel = useRef<{ from: number; steps: number; elapsed: number; duration: number } | null>(null);
 
-  useFrame(({ clock }) => {
-    if (!token.current || reducedMotion) return;
-    token.current.position.y = 0.42 + Math.sin(clock.elapsedTime * 2.2 + x * 3 + z) * 0.045 + (active ? 0.035 : 0);
-    token.current.rotation.y = Math.sin(clock.elapsedTime * 0.85 + x) * 0.1;
+  useEffect(() => {
+    const nextPosition = normaliseIndex(player.position);
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      previousPosition.current = nextPosition;
+      return;
+    }
+
+    const previous = previousPosition.current;
+    previousPosition.current = nextPosition;
+    if (previous === nextPosition || reducedMotion) {
+      travel.current = null;
+      return;
+    }
+
+    const forward = (nextPosition - previous + BOARD_SIZE) % BOARD_SIZE;
+    // Dice movement is normally forward; a short backwards card movement stays backwards.
+    const steps = forward > 14 ? forward - BOARD_SIZE : forward;
+    travel.current = {
+      from: previous,
+      steps,
+      elapsed: 0,
+      duration: Math.min(2.05, Math.max(0.34, Math.abs(steps) * 0.135)),
+    };
+  }, [player.position, reducedMotion]);
+
+  useFrame(({ clock }, delta) => {
+    const group = token.current;
+    if (!group) return;
+
+    let nextX = x;
+    let nextZ = z;
+    const journey = travel.current;
+    if (!reducedMotion && journey && journey.steps !== 0) {
+      journey.elapsed += Math.min(delta, 0.05);
+      const progress = Math.min(1, journey.elapsed / journey.duration);
+      const eased = 1 - (1 - progress) ** 3;
+      const absoluteSteps = Math.abs(journey.steps);
+      const travelled = Math.min(absoluteSteps, eased * absoluteSteps);
+      const segment = Math.min(absoluteSteps - 1, Math.floor(travelled));
+      const segmentProgress = travelled - segment;
+      const direction = Math.sign(journey.steps);
+      const [fromX, fromZ] = boardPoint(journey.from + direction * segment, 0, 0);
+      const [toX, toZ] = boardPoint(journey.from + direction * (segment + 1), 0, 0);
+      nextX = fromX + (toX - fromX) * segmentProgress;
+      nextZ = fromZ + (toZ - fromZ) * segmentProgress;
+      if (progress >= 1) travel.current = null;
+    }
+
+    if (reducedMotion) {
+      group.position.set(nextX, 0.45 + (active ? 0.035 : 0), nextZ);
+      group.rotation.y = 0;
+      group.scale.setScalar(1);
+      return;
+    }
+
+    // A gentle interpolation also handles token-stack reshuffling without a hard snap.
+    const follow = Math.min(1, delta * 18);
+    group.position.x += (nextX - group.position.x) * follow;
+    group.position.z += (nextZ - group.position.z) * follow;
+    group.position.y = 0.46 + Math.sin(clock.elapsedTime * 2.3 + x * 2.4 + z) * 0.038 + (active ? 0.052 : 0);
+    group.rotation.y = Math.sin(clock.elapsedTime * 0.75 + x) * 0.08;
+    group.scale.setScalar(active ? 1.045 + Math.sin(clock.elapsedTime * 2.7) * 0.018 : 1);
   });
 
   return (
-    <group ref={token} position={[x, 0.42 + (active ? 0.035 : 0), z]}>
+    <group ref={token} position={[x, 0.46 + (active ? 0.052 : 0), z]}>
       {active && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.34, 0]}>
-          <ringGeometry args={[0.19, 0.28, 24]} />
-          <meshBasicMaterial color="#fef08a" transparent opacity={0.95} />
-        </mesh>
+        <>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.34, 0]}>
+            <ringGeometry args={[0.22, 0.32, 28]} />
+            <meshBasicMaterial color="#f9d86f" transparent opacity={0.94} depthWrite={false} />
+          </mesh>
+          <pointLight color={player.color} intensity={1.4} distance={2.4} />
+        </>
       )}
       <mesh castShadow>
-        <cylinderGeometry args={[0.16, 0.21, 0.16, 20]} />
-        <meshStandardMaterial color={player.color} roughness={0.28} metalness={0.25} emissive={active ? player.color : '#000000'} emissiveIntensity={active ? 0.25 : 0} />
+        <cylinderGeometry args={[0.145, 0.22, 0.13, 20]} />
+        <meshStandardMaterial color={player.color} roughness={0.2} metalness={0.48} emissive={active ? player.color : '#000000'} emissiveIntensity={active ? 0.22 : 0} />
       </mesh>
-      <mesh position={[0, 0.14, 0]} castShadow>
-        <sphereGeometry args={[0.14, 20, 16]} />
-        <meshStandardMaterial color={player.color} roughness={0.25} metalness={0.16} />
+      <mesh position={[0, 0.13, 0]} castShadow>
+        <sphereGeometry args={[0.135, 20, 16]} />
+        <meshStandardMaterial color={player.color} roughness={0.18} metalness={0.36} />
+      </mesh>
+      <mesh position={[0, 0.22, 0]} castShadow>
+        <cylinderGeometry args={[0.058, 0.085, 0.14, 16]} />
+        <meshStandardMaterial color="#f8fafc" roughness={0.26} metalness={0.38} />
       </mesh>
     </group>
   );
 }
 
-function BoardTile({
+const BoardTile = memo(function BoardTile({
   space,
   selected,
-  owner,
   ownerColor,
   buildings,
   mortgaged,
-  onSelect,
+  onSelectSpace,
+  reducedMotion,
 }: {
   space: VisualSpace;
   selected: boolean;
-  owner?: VisualPlayer;
   ownerColor?: string;
   buildings: number;
   mortgaged: boolean;
-  onSelect: (event: ThreeEvent<MouseEvent>) => void;
+  onSelectSpace: (spaceId: string) => void;
+  reducedMotion: boolean;
 }) {
   const layout = layoutForSpace(space.index);
   const tint = tileColor(space);
-  const fontSize = layout.corner ? 0.24 : 0.17;
-  const subtitle = space.price ? `¤${space.price}` : space.kind.replace(/(^|[-_ ])\w/g, (letter) => letter.toUpperCase());
+  const special = layout.corner || !space.price;
+  const faceColor = special ? tint : '#f4f1e8';
+  const labelColor = special ? '#f8fafc' : '#132238';
+  const fontSize = layout.corner ? 0.225 : 0.165;
+  const handleClick = useCallback((event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    onSelectSpace(space.id);
+  }, [onSelectSpace, space.id]);
 
   return (
-    <group position={[layout.x, 0.05, layout.z]} rotation={[0, layout.rotation, 0]}>
+    <group position={[layout.x, 0.06, layout.z]} rotation={[0, layout.rotation, 0]}>
       <RoundedBox
-        args={[layout.width * 0.94, 0.22, layout.depth * 0.92]}
+        args={[layout.width * 0.97, 0.23, layout.depth * 0.95]}
         radius={0.075}
         smoothness={4}
         castShadow
         receiveShadow
-        onClick={onSelect}
+        onClick={handleClick}
         onPointerOver={(event) => {
           event.stopPropagation();
           document.body.style.cursor = 'pointer';
@@ -398,107 +641,159 @@ function BoardTile({
           document.body.style.cursor = 'default';
         }}
       >
-        <meshStandardMaterial color={tint} roughness={0.48} metalness={0.12} emissive={selected ? tint : '#000000'} emissiveIntensity={selected ? 0.48 : 0} />
+        <meshStandardMaterial color="#14233a" roughness={0.38} metalness={0.28} />
+      </RoundedBox>
+      <RoundedBox args={[layout.width * 0.91, 0.055, layout.depth * 0.88]} position={[0, 0.14, 0]} radius={0.045} smoothness={3}>
+        <meshStandardMaterial color={faceColor} roughness={0.52} metalness={special ? 0.15 : 0.04} />
       </RoundedBox>
 
-      {selected && (
-        <mesh position={[0, 0.145, 0]}>
-          <boxGeometry args={[layout.width * 0.98, 0.028, layout.depth * 0.97]} />
-          <meshBasicMaterial color="#fef08a" transparent opacity={0.48} />
-        </mesh>
-      )}
+      <mesh position={[0, 0.181, layout.depth * 0.29]}>
+        <boxGeometry args={[layout.width * 0.77, 0.045, Math.min(0.19, layout.depth * 0.12)]} />
+        <meshStandardMaterial color={tint} roughness={0.34} metalness={0.18} emissive={selected ? tint : '#000000'} emissiveIntensity={selected ? 0.2 : 0} />
+      </mesh>
 
-      {owner && ownerColor && (
-        <mesh position={[0, 0.18, layout.depth * 0.33]}>
-          <boxGeometry args={[layout.width * 0.78, 0.08, 0.11]} />
-          <meshStandardMaterial color={ownerColor} emissive={ownerColor} emissiveIntensity={0.12} />
-        </mesh>
+      {selected && <SelectionGlow width={layout.width} depth={layout.depth} reducedMotion={reducedMotion} />}
+
+      {ownerColor && (
+        <>
+          <mesh position={[0, 0.192, -layout.depth * 0.32]}>
+            <boxGeometry args={[layout.width * 0.78, 0.062, 0.105]} />
+            <meshStandardMaterial color={ownerColor} emissive={ownerColor} emissiveIntensity={0.24} roughness={0.28} metalness={0.2} />
+          </mesh>
+          <mesh position={[layout.width * 0.34, 0.226, -layout.depth * 0.32]}>
+            <sphereGeometry args={[0.045, 12, 10]} />
+            <meshStandardMaterial color="#fff7c4" emissive="#f9d86f" emissiveIntensity={0.5} />
+          </mesh>
+        </>
       )}
 
       {mortgaged && (
-        <mesh position={[0, 0.19, -layout.depth * 0.32]}>
-          <boxGeometry args={[layout.width * 0.76, 0.055, 0.1]} />
-          <meshStandardMaterial color="#fef3c7" emissive="#f59e0b" emissiveIntensity={0.34} />
-        </mesh>
+        <group position={[0, 0.2, -layout.depth * 0.1]} rotation={[0, 0, -0.22]}>
+          <mesh>
+            <boxGeometry args={[layout.width * 0.8, 0.04, 0.09]} />
+            <meshStandardMaterial color="#b91c1c" emissive="#ef4444" emissiveIntensity={0.24} roughness={0.38} />
+          </mesh>
+        </group>
       )}
 
       <Text
-        position={[0, 0.175, layout.corner ? -0.1 : 0.02]}
+        position={[0, 0.211, layout.corner ? -0.08 : 0.025]}
         rotation={[-Math.PI / 2, 0, 0]}
         anchorX="center"
         anchorY="middle"
-        color="#f8fafc"
+        color={labelColor}
         fontSize={fontSize}
-        maxWidth={Math.max(0.72, layout.width * 0.78)}
-        lineHeight={0.92}
+        maxWidth={Math.max(0.7, layout.width * 0.76)}
+        lineHeight={0.9}
         textAlign="center"
-        outlineWidth={0.008}
-        outlineColor="#0f172a"
+        outlineWidth={special ? 0.008 : 0.004}
+        outlineColor={special ? '#0b1324' : '#f8fafc'}
       >
         {space.label}
       </Text>
       {!layout.corner && (
         <Text
-          position={[0, 0.178, -layout.depth * 0.26]}
+          position={[0, 0.213, -layout.depth * 0.175]}
           rotation={[-Math.PI / 2, 0, 0]}
           anchorX="center"
           anchorY="middle"
-          color="rgba(255,255,255,0.78)"
-          fontSize={0.105}
+          color={special ? 'rgba(255,255,255,0.82)' : '#52657d'}
+          fontSize={0.098}
           maxWidth={layout.width * 0.7}
+          letterSpacing={0.035}
         >
-          {subtitle}
+          {spaceCaption(space)}
         </Text>
       )}
-      <BuildingCluster count={buildings} tint={ownerColor ?? '#e2e8f0'} />
+      <Text
+        position={[layout.width * 0.34, 0.216, layout.depth * 0.3]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        anchorX="center"
+        anchorY="middle"
+        color={special ? '#ffffff' : '#f8fafc'}
+        fontSize={layout.corner ? 0.23 : 0.115}
+        outlineWidth={0.006}
+        outlineColor="#0b1324"
+      >
+        {spaceGlyph(space)}
+      </Text>
+      <BuildingCluster count={buildings} tint={ownerColor ?? '#94a3b8'} />
     </group>
   );
-}
+});
 
-function MiniatureCity() {
+const MiniatureCity = memo(function MiniatureCity({ shadows }: { shadows: boolean }) {
   return (
     <group>
-      <RoundedBox args={[14.2, 0.18, 14.2]} radius={0.24} smoothness={4} position={[0, -0.05, 0]} receiveShadow>
-        <meshStandardMaterial color="#182335" roughness={0.72} />
+      <RoundedBox args={[22.35, 0.48, 22.35]} radius={0.3} smoothness={5} position={[0, -0.22, 0]} receiveShadow>
+        <meshStandardMaterial color="#101d31" roughness={0.42} metalness={0.35} />
       </RoundedBox>
+      <RoundedBox args={[21.82, 0.1, 21.82]} radius={0.22} smoothness={4} position={[0, 0.01, 0]} receiveShadow>
+        <meshStandardMaterial color="#1a4050" roughness={0.66} metalness={0.12} />
+      </RoundedBox>
+      <InstancedBoxes items={FRAME_RAILS} roughness={0.25} metalness={0.55} shadows={shadows} />
 
-      <mesh position={[0, 0.055, 0]} receiveShadow>
-        <planeGeometry args={[11.4, 11.4]} />
-        <meshStandardMaterial color="#24344c" roughness={0.88} />
+      <mesh position={[0, 0.075, 0]} receiveShadow>
+        <planeGeometry args={[11.55, 11.55]} />
+        <meshStandardMaterial color="#23465a" roughness={0.86} metalness={0.04} />
       </mesh>
-      <mesh position={[0, 0.063, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 4]}>
-        <planeGeometry args={[6.1, 6.1]} />
-        <meshStandardMaterial color="#164e63" roughness={0.64} metalness={0.08} />
+      <mesh position={[0, 0.081, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 4]}>
+        <planeGeometry args={[6.3, 6.3]} />
+        <meshStandardMaterial color="#1f5e70" roughness={0.68} metalness={0.08} />
+      </mesh>
+      <mesh position={[0, 0.085, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[4.1, 4.18, 64]} />
+        <meshStandardMaterial color="#d7ad4a" roughness={0.32} metalness={0.48} />
       </mesh>
 
-      {CITY_BLOCKS.map(([x, z, width, depth, color], index) => (
-        <group key={index} position={[x, 0.08, z]}>
-          <mesh receiveShadow>
-            <boxGeometry args={[width, 0.08, depth]} />
-            <meshStandardMaterial color="#0f172a" roughness={0.8} />
-          </mesh>
-          <mesh position={[width * 0.16, 0.23 + (index % 3) * 0.06, depth * -0.08]} castShadow>
-            <boxGeometry args={[Math.min(0.45, width * 0.34), 0.32 + (index % 3) * 0.12, Math.min(0.42, depth * 0.34)]} />
-            <meshStandardMaterial color={color} roughness={0.5} metalness={0.16} />
-          </mesh>
-          <mesh position={[width * -0.18, 0.17, depth * 0.14]} castShadow>
-            <boxGeometry args={[Math.min(0.36, width * 0.28), 0.22, Math.min(0.34, depth * 0.28)]} />
-            <meshStandardMaterial color="#e2e8f0" roughness={0.58} />
-          </mesh>
-        </group>
-      ))}
+      <InstancedBoxes items={CITY_ROADS} roughness={0.78} metalness={0.04} shadows={shadows} />
+      <InstancedBoxes items={CITY_FOUNDATIONS} roughness={0.75} metalness={0.06} shadows={shadows} />
+      <InstancedBoxes items={CITY_BUILDINGS} roughness={0.38} metalness={0.26} shadows={shadows} />
+      <InstancedBoxes items={TREE_TRUNKS} roughness={0.86} metalness={0} shadows={shadows} />
+      <InstancedBoxes items={TREE_CROWNS} roughness={0.82} metalness={0.02} shadows={shadows} />
 
-      <Billboard position={[0, 0.12, 0]} follow lockX={false} lockY={false} lockZ={false}>
-        <Text color="#e0f2fe" fontSize={0.74} anchorX="center" anchorY="middle" outlineWidth={0.016} outlineColor="#0f172a">
-          CIVIC FORTUNE
-        </Text>
-        <Text position={[0, -0.48, 0]} color="#94a3b8" fontSize={0.18} anchorX="center" anchorY="middle">
-          A CITY OF CHOICES
-        </Text>
-      </Billboard>
+      <group position={[0, 0.13, 0]}>
+        <mesh castShadow={shadows} receiveShadow={shadows}>
+          <cylinderGeometry args={[0.88, 1.05, 0.3, 32]} />
+          <meshStandardMaterial color="#d8e7ef" roughness={0.36} metalness={0.22} />
+        </mesh>
+        <mesh position={[0, 0.34, 0]} castShadow={shadows}>
+          <sphereGeometry args={[0.55, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#1d7e94" roughness={0.3} metalness={0.25} />
+        </mesh>
+        <mesh position={[0, 0.43, 0]} castShadow={shadows}>
+          <cylinderGeometry args={[0.07, 0.07, 0.42, 12]} />
+          <meshStandardMaterial color="#e7c36a" roughness={0.25} metalness={0.6} />
+        </mesh>
+      </group>
+
+      <Text
+        position={[0, 0.12, -0.05]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        color="#f4e7b0"
+        fontSize={0.64}
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.13}
+        outlineWidth={0.012}
+        outlineColor="#143244"
+      >
+        CIVIC FORTUNE
+      </Text>
+      <Text
+        position={[0, 0.125, -0.57]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        color="#c4dbe6"
+        fontSize={0.15}
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.16}
+      >
+        A CITY OF CHOICES
+      </Text>
     </group>
   );
-}
+});
 
 function BoardScene({
   spaces,
@@ -508,6 +803,7 @@ function BoardScene({
   activeId,
   onSelectSpace,
   reducedMotion,
+  shadows,
 }: {
   spaces: VisualSpace[];
   players: VisualPlayer[];
@@ -516,11 +812,12 @@ function BoardScene({
   activeId?: string;
   onSelectSpace: (spaceId: string) => void;
   reducedMotion: boolean;
+  shadows: boolean;
 }) {
   const playersBySpace = useMemo(() => {
     const map = new Map<number, VisualPlayer[]>();
     players.filter((player) => !player.isBankrupt).forEach((player) => {
-      const position = ((player.position % 52) + 52) % 52;
+      const position = normaliseIndex(player.position);
       map.set(position, [...(map.get(position) ?? []), player]);
     });
     return map;
@@ -528,26 +825,34 @@ function BoardScene({
 
   const playerById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
 
-  const handleSpaceClick = useCallback((spaceId: string, event: ThreeEvent<MouseEvent>) => {
-    event.stopPropagation();
-    onSelectSpace(spaceId);
-  }, [onSelectSpace]);
-
   return (
     <>
-      <color attach="background" args={['#07101f']} />
-      <fog attach="fog" args={['#07101f', 20, 40]} />
-      <hemisphereLight args={['#dbeafe', '#091323', 1.45]} />
-      <directionalLight position={[8, 14, 7]} intensity={2.15} color="#fff7ed" castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-      <pointLight position={[-8, 5, -4]} color="#38bdf8" intensity={16} distance={17} />
-      <pointLight position={[8, 4, 8]} color="#f59e0b" intensity={9} distance={13} />
+      <color attach="background" args={['#06101b']} />
+      <fog attach="fog" args={['#06101b', 24, 47]} />
+      <hemisphereLight args={['#d8eef9', '#06111f', 1.4]} />
+      <directionalLight
+        position={[8.5, 15, 6]}
+        intensity={2.5}
+        color="#fff2dd"
+        castShadow={shadows}
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-camera-left={-16}
+        shadow-camera-right={16}
+        shadow-camera-top={16}
+        shadow-camera-bottom={-16}
+        shadow-bias={-0.00015}
+      />
+      <pointLight position={[-9, 5.5, -6]} color="#38bdf8" intensity={17} distance={20} decay={2} />
+      <pointLight position={[8, 5, 8]} color="#f6bf58" intensity={12} distance={17} decay={2} />
+      <pointLight position={[0, 7, -9]} color="#8b5cf6" intensity={6} distance={14} decay={2} />
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.18, 0]} receiveShadow>
-        <planeGeometry args={[44, 44]} />
-        <meshStandardMaterial color="#050b16" roughness={0.97} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.48, 0]} receiveShadow>
+        <planeGeometry args={[48, 48]} />
+        <meshStandardMaterial color="#040b14" roughness={0.98} />
       </mesh>
 
-      <MiniatureCity />
+      <MiniatureCity shadows={shadows} />
 
       {spaces.map((space) => {
         const property = properties.get(space.id) ?? properties.get(String(space.index));
@@ -557,18 +862,18 @@ function BoardScene({
             key={space.id}
             space={space}
             selected={space.id === selectedSpaceId}
-            owner={owner}
             ownerColor={owner?.color}
             buildings={property?.buildings ?? 0}
             mortgaged={property?.mortgaged ?? false}
-            onSelect={(event) => handleSpaceClick(space.id, event)}
+            onSelectSpace={onSelectSpace}
+            reducedMotion={reducedMotion}
           />
         );
       })}
 
       {spaces.map((space) => {
         const layout = layoutForSpace(space.index);
-        return (playersBySpace.get(((space.index % 52) + 52) % 52) ?? []).map((player, slot) => {
+        return (playersBySpace.get(normaliseIndex(space.index)) ?? []).map((player, slot) => {
           const [offsetX, offsetZ] = playerOffset(slot, layout);
           return (
             <Token
@@ -586,15 +891,15 @@ function BoardScene({
       <OrbitControls
         makeDefault
         target={[0, 0, 0]}
-        minDistance={18}
-        maxDistance={30}
-        minPolarAngle={0.48}
-        maxPolarAngle={1.22}
-        minAzimuthAngle={-0.82}
-        maxAzimuthAngle={0.82}
+        minDistance={17.5}
+        maxDistance={35}
+        minPolarAngle={0.32}
+        maxPolarAngle={1.42}
         enablePan={false}
         enableDamping={!reducedMotion}
-        dampingFactor={0.08}
+        dampingFactor={0.1}
+        rotateSpeed={0.68}
+        zoomSpeed={0.76}
       />
     </>
   );
@@ -607,12 +912,12 @@ function BoardTable({
   selectedSpaceId,
   activeId,
   onSelectSpace,
-}: Omit<Parameters<typeof BoardScene>[0], 'reducedMotion'>) {
+}: Omit<Parameters<typeof BoardScene>[0], 'reducedMotion' | 'shadows'>) {
   const playerById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const tokensByIndex = useMemo(() => {
     const map = new Map<number, VisualPlayer[]>();
     players.filter((player) => !player.isBankrupt).forEach((player) => {
-      const index = ((player.position % 52) + 52) % 52;
+      const index = normaliseIndex(player.position);
       map.set(index, [...(map.get(index) ?? []), player]);
     });
     return map;
@@ -631,8 +936,8 @@ function BoardTable({
         padding: 10,
         borderRadius: 18,
         boxSizing: 'border-box',
-        background: 'linear-gradient(145deg, #0e1a2d, #07101f)',
-        boxShadow: 'inset 0 0 0 1px rgba(148, 163, 184, 0.2), 0 22px 60px rgba(2, 6, 23, 0.45)',
+        background: 'linear-gradient(145deg, #16334a, #07101f)',
+        boxShadow: 'inset 0 0 0 1px rgba(231,195,106,0.28), 0 22px 60px rgba(2, 6, 23, 0.45)',
       }}
     >
       <div
@@ -643,13 +948,14 @@ function BoardTable({
           display: 'grid',
           placeItems: 'center',
           borderRadius: 12,
-          background: 'radial-gradient(circle at 50% 45%, #1d4ed8 0%, #164e63 30%, #172554 70%)',
-          color: '#e0f2fe',
+          background: 'radial-gradient(circle at 50% 45%, #1f7b90 0%, #1a4050 32%, #0d2036 75%)',
+          color: '#f4e7b0',
           fontSize: 'clamp(0.9rem, 2vw, 1.7rem)',
           fontWeight: 800,
           letterSpacing: '0.16em',
           textAlign: 'center',
           pointerEvents: 'none',
+          boxShadow: 'inset 0 0 0 1px rgba(231,195,106,0.28)',
         }}
       >
         CIVIC FORTUNE
@@ -657,7 +963,7 @@ function BoardTable({
       {spaces.map((space) => {
         const property = properties.get(space.id) ?? properties.get(String(space.index));
         const owner = property?.ownerId ? playerById.get(property.ownerId) : undefined;
-        const tokens = tokensByIndex.get(((space.index % 52) + 52) % 52) ?? [];
+        const tokens = tokensByIndex.get(normaliseIndex(space.index)) ?? [];
         const placement = tablePlacement(space.index);
         const selected = space.id === selectedSpaceId;
         return (
@@ -674,7 +980,7 @@ function BoardTable({
               minHeight: 0,
               padding: 2,
               overflow: 'hidden',
-              border: selected ? '2px solid #fef08a' : '1px solid rgba(255,255,255,0.18)',
+              border: selected ? '2px solid #f4d66f' : '1px solid rgba(255,255,255,0.18)',
               borderRadius: 5,
               color: '#f8fafc',
               background: tileColor(space),
@@ -682,11 +988,11 @@ function BoardTable({
               lineHeight: 1.05,
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: owner ? `inset 0 -4px 0 ${owner.color}` : undefined,
+              boxShadow: owner ? `inset 0 -4px 0 ${owner.color}` : 'inset 0 -3px 0 rgba(255,255,255,0.11)',
             }}
           >
             <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{space.label}</span>
-            {property && property.buildings > 0 && <span aria-hidden="true" style={{ color: '#fef08a' }}>{property.buildings >= 5 ? '▰' : '▪'.repeat(property.buildings)}</span>}
+            {property && property.buildings > 0 && <span aria-hidden="true" style={{ color: '#fef08a' }}>{property.buildings >= 5 ? 'T' : '+'.repeat(property.buildings)}</span>}
             <span aria-hidden="true" style={{ display: 'flex', justifyContent: 'center', gap: 1, marginTop: 1 }}>
               {tokens.slice(0, 4).map((player) => (
                 <i key={player.id} style={{ width: 5, height: 5, borderRadius: 99, display: 'block', background: player.color, boxShadow: player.id === activeId ? '0 0 0 1px #fef08a' : undefined }} />
@@ -748,24 +1054,24 @@ export const Board3D = memo(function Board3D({
       style={{
         position: 'relative',
         width: '100%',
-        minHeight: 520,
+        minHeight: 540,
         overflow: 'hidden',
-        borderRadius: 18,
-        background: '#07101f',
-        boxShadow: '0 22px 60px rgba(2, 6, 23, 0.45)',
+        borderRadius: 20,
+        background: '#06101b',
+        boxShadow: '0 26px 72px rgba(2, 6, 23, 0.52), inset 0 0 0 1px rgba(231,195,106,0.2)',
         ...style,
       }}
     >
       <Canvas
         shadows={shadows}
-        dpr={[1, 1.75]}
-        camera={{ position: [0, 20.5, 20.5], fov: 42, near: 0.1, far: 100 }}
-        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+        dpr={[1, 1.5]}
+        camera={{ position: [0, 19.5, 22.5], fov: 41, near: 0.1, far: 100 }}
+        gl={{ antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: false, stencil: false }}
         frameloop={reducedMotion ? 'demand' : 'always'}
         onPointerMissed={() => {
           if (selectedSpaceIdProp === undefined) setLocalSelectedSpaceId(null);
         }}
-        style={{ display: 'block', width: '100%', height: '100%', minHeight: 520, touchAction: 'none' }}
+        style={{ display: 'block', width: '100%', height: '100%', minHeight: 540, touchAction: 'none' }}
       >
         <BoardScene
           spaces={spaces}
@@ -775,6 +1081,7 @@ export const Board3D = memo(function Board3D({
           activeId={activeId}
           onSelectSpace={selectSpace}
           reducedMotion={reducedMotion}
+          shadows={shadows}
         />
       </Canvas>
       <div
@@ -783,18 +1090,41 @@ export const Board3D = memo(function Board3D({
           position: 'absolute',
           left: 14,
           top: 13,
-          padding: '6px 9px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          padding: '7px 10px',
           borderRadius: 999,
-          color: '#cbd5e1',
-          background: 'rgba(7, 16, 31, 0.72)',
-          border: '1px solid rgba(148,163,184,0.26)',
-          backdropFilter: 'blur(8px)',
+          color: '#e5edf2',
+          background: 'rgba(6, 16, 27, 0.72)',
+          border: '1px solid rgba(231,195,106,0.34)',
+          backdropFilter: 'blur(10px)',
           fontSize: 11,
           fontWeight: 800,
           letterSpacing: '0.09em',
         }}
       >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#62dca3', boxShadow: '0 0 12px #62dca3' }} />
         {players.length}/20 SEATS
+      </div>
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          right: 14,
+          bottom: 13,
+          padding: '6px 9px',
+          borderRadius: 8,
+          color: 'rgba(226,232,240,0.83)',
+          background: 'rgba(6, 16, 27, 0.62)',
+          border: '1px solid rgba(148,163,184,0.2)',
+          backdropFilter: 'blur(8px)',
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+        }}
+      >
+        DRAG TO EXPLORE · SCROLL TO ZOOM
       </div>
       <BoardStatusAnnouncer selectedSpace={selectedSpace} />
     </section>

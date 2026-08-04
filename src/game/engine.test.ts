@@ -44,7 +44,7 @@ describe("Civic Fortune reducer", () => {
     expect(landed.phase).toBe("awaitingPurchase");
     expect(bought.phase).toBe("awaitingEndTurn");
     expect(bought.properties["marina-row"].ownerId).toBe("ava");
-    expect(bought.players.find((player) => player.id === "ava")?.cash).toBe(1_720);
+    expect(bought.players.find((player) => player.id === "ava")?.cash).toBe(1_420);
     expect(started.properties["marina-row"].ownerId).toBeNull();
   });
 
@@ -55,8 +55,8 @@ describe("Civic Fortune reducer", () => {
     const rented = reduceGame(nextTurn, { type: "ROLL", playerId: "bo", dice: [1, 2], now: 3_300 });
 
     expect(rented.phase).toBe("awaitingEndTurn");
-    expect(rented.players.find((player) => player.id === "ava")?.cash).toBe(1_726);
-    expect(rented.players.find((player) => player.id === "bo")?.cash).toBe(1_794);
+    expect(rented.players.find((player) => player.id === "ava")?.cash).toBe(1_426);
+    expect(rented.players.find((player) => player.id === "bo")?.cash).toBe(1_494);
     expect(rented.events.at(-1)?.type).toBe("rent");
   });
 
@@ -69,7 +69,7 @@ describe("Civic Fortune reducer", () => {
     expect(auction.phase).toBe("auction");
     expect(closed.phase).toBe("awaitingEndTurn");
     expect(closed.properties["marina-row"].ownerId).toBe("ava");
-    expect(closed.players.find((player) => player.id === "ava")?.cash).toBe(1_750);
+    expect(closed.players.find((player) => player.id === "ava")?.cash).toBe(1_450);
   });
 
   it("enforces even construction and allows half-price building sales", () => {
@@ -82,7 +82,7 @@ describe("Civic Fortune reducer", () => {
     const evenBuild = reduceGame(firstBuild, { type: "BUILD", playerId: "ava", tileId: "marina-row", now: 3_200 });
     const sold = reduceGame(evenBuild, { type: "SELL_BUILDING", playerId: "ava", tileId: "marina-row", now: 3_300 });
     expect(sold.properties["marina-row"].buildings).toBe(0);
-    expect(sold.players.find((player) => player.id === "ava")?.cash).toBe(1_725);
+    expect(sold.players.find((player) => player.id === "ava")?.cash).toBe(1_425);
   });
 
   it("creates debt when rent exceeds cash and resolves bankruptcy", () => {
@@ -97,6 +97,31 @@ describe("Civic Fortune reducer", () => {
     expect(bankrupt.players.find((player) => player.id === "ava")?.status).toBe("bankrupt");
     expect(bankrupt.status).toBe("complete");
     expect(bankrupt.winnerId).toBe("bo");
+  });
+
+  it("lets the debtor sell or mortgage assets while resolving a debt", () => {
+    let state = withOwnership(startedGame(), "ava", ["cedar-quay"]);
+    state = structuredClone(state) as GameState;
+    state.players.find((player) => player.id === "ava")!.cash = 0;
+    state.phase = "awaitingDebt";
+    state.debt = { playerId: "ava", amount: 90, creditorPlayerId: null, reason: "test levy" };
+
+    const mortgaged = reduceGame(state, { type: "MORTGAGE", playerId: "ava", tileId: "cedar-quay", now: 3_000 });
+
+    expect(mortgaged.phase).toBe("awaitingDebt");
+    expect(mortgaged.properties["cedar-quay"].mortgaged).toBe(true);
+    expect(mortgaged.players.find((player) => player.id === "ava")?.cash).toBeGreaterThan(0);
+  });
+
+  it("awards the Founders' Plaza bonus exactly once when landing on it", () => {
+    let state = startedGame();
+    state = structuredClone(state) as GameState;
+    state.players.find((player) => player.id === "ava")!.position = 50;
+
+    const landed = reduceGame(state, { type: "ROLL", playerId: "ava", dice: [1, 1], now: 3_000 });
+
+    expect(landed.players.find((player) => player.id === "ava")?.position).toBe(0);
+    expect(landed.players.find((player) => player.id === "ava")?.cash).toBe(1_700);
   });
 
   it("transfers cash and property after a valid accepted trade", () => {
@@ -116,8 +141,8 @@ describe("Civic Fortune reducer", () => {
 
     expect(accepted.properties["cedar-quay"].ownerId).toBe("bo");
     expect(accepted.properties["marina-row"].ownerId).toBe("ava");
-    expect(accepted.players.find((player) => player.id === "ava")?.cash).toBe(1_770);
-    expect(accepted.players.find((player) => player.id === "bo")?.cash).toBe(1_830);
+    expect(accepted.players.find((player) => player.id === "ava")?.cash).toBe(1_470);
+    expect(accepted.players.find((player) => player.id === "bo")?.cash).toBe(1_530);
   });
 
   it("applies a card effect from the server-side deck", () => {
@@ -126,7 +151,7 @@ describe("Civic Fortune reducer", () => {
     state.players.find((player) => player.id === "ava")!.position = 6;
     const cardState = reduceGame(state, { type: "ROLL", playerId: "ava", dice: [1, 1], now: 3_000 });
 
-    expect(cardState.players.find((player) => player.id === "ava")?.cash).toBe(1_950);
+    expect(cardState.players.find((player) => player.id === "ava")?.cash).toBe(1_650);
     expect(cardState.events.some((event) => event.type === "card" && event.data?.cardId === "event-market-surge")).toBe(true);
   });
 });

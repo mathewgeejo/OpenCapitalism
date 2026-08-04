@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import type { User } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { HttpError } from "./http.ts";
-import type { PlayerMeta, PrivateGameState, PublicGameSnapshot } from "./contracts.ts";
+import type { PlayerMeta, PrivateGameState, PublicGameEvent, PublicGameSnapshot } from "./contracts.ts";
 
 export interface DbGame {
   id: string;
@@ -15,6 +15,7 @@ export interface DbGame {
   state_version: number;
   current_player_id: string | null;
   turn_deadline_at: string | null;
+  trade_deadline_at: string | null;
   created_at: string;
   started_at: string | null;
 }
@@ -23,6 +24,7 @@ export interface DbMember {
   game_id: string;
   user_id: string;
   seat: number;
+  token_color: string;
   role: "host" | "player";
   status: "joined" | "left" | "eliminated";
 }
@@ -61,44 +63,67 @@ function validPublicSnapshot(value: unknown): value is PublicGameSnapshot {
 }
 
 export async function loadGameBundle(client: SupabaseClient, gameId: string): Promise<GameBundle> {
-  const [gameResult, memberResult, privateResult, snapshotResult] = await Promise.all([
-    client.from("games").select("*").eq("id", gameId).maybeSingle(),
-    client.from("game_members").select("game_id,user_id,seat,role,status").eq("game_id", gameId).order("seat"),
-    client.from("game_private_states").select("version,state").eq("game_id", gameId).maybeSingle(),
-    client.from("game_public_snapshots").select("version,snapshot").eq("game_id", gameId).maybeSingle(),
-  ]);
-  if (gameResult.error || memberResult.error || privateResult.error || snapshotResult.error) databaseError(gameResult.error ?? memberResult.error ?? privateResult.error ?? snapshotResult.error);
-  if (!gameResult.data) throw new HttpError(404, "GAME_NOT_FOUND", "That game does not exist");
-  if (!privateResult.data || !snapshotResult.data || !validPrivateState(privateResult.data.state) || !validPublicSnapshot(snapshotResult.data.snapshot)) {
-    throw new HttpError(409, "STATE_UNAVAILABLE", "The game state is not ready");
-  }
-  const game = gameResult.data as DbGame;
-  const members = (memberResult.data ?? []) as DbMember[];
-  const userIds = members.map((member) => member.user_id);
-  const profileResult = userIds.length
-    ? await client.from("profiles").select("id,display_name,avatar_color").in("id", userIds)
-    : { data: [], error: null };
-  if (profileResult.error) databaseError(profileResult.error);
-  const profiles = new Map(((profileResult.data ?? []) as DbProfile[]).map((profile) => [profile.id, profile]));
-  const playerMeta = members.map((member) => {
-    const profile = profiles.get(member.user_id);
+  // These rows are written together in one transaction, but separate REST
+  // reads can straddle that commit. Never hand callers a game row from N with
+  // snapshots from N-1; retry a small bounded number of times instead.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const [gameResult, memberResult, privateResult, snapshotResult] = await Promise.all([
+      client.from("games").select("*").eq("id", gameId).maybeSingle(),
+      client.from("game_members").select("game_id,user_id,seat,token_color,role,status").eq("game_id", gameId).order("seat"),
+      client.from("game_private_states").select("version,state").eq("game_id", gameId).maybeSingle(),
+      client.from("game_public_snapshots").select("version,snapshot").eq("game_id", gameId).maybeSingle(),
+    ]);
+    if (gameResult.error || memberResult.error || privateResult.error || snapshotResult.error) {
+      databaseError(gameResult.error ?? memberResult.error ?? privateResult.error ?? snapshotResult.error);
+    }
+    if (!gameResult.data) throw new HttpError(404, "GAME_NOT_FOUND", "That game does not exist");
+    if (!privateResult.data || !snapshotResult.data || !validPrivateState(privateResult.data.state) || !validPublicSnapshot(snapshotResult.data.snapshot)) {
+      throw new HttpError(409, "STATE_UNAVAILABLE", "The game state is not ready");
+    }
+
+    const game = gameResult.data as DbGame;
+    const privateVersion = privateResult.data.version as number;
+    const publicVersion = snapshotResult.data.version as number;
+    if (game.state_version !== privateVersion || game.state_version !== publicVersion) {
+      if (attempt < 2) {
+        await new Promise<void>((resolve) => setTimeout(resolve, (attempt + 1) * 15));
+        continue;
+      }
+      throw new HttpError(409, "SNAPSHOT_RETRY", "The board updated while loading; retry the snapshot", {
+        currentVersion: game.state_version,
+        retryAfterMs: 75,
+      });
+    }
+
+    const members = (memberResult.data ?? []) as DbMember[];
+    const userIds = members.map((member) => member.user_id);
+    const profileResult = userIds.length
+      ? await client.from("profiles").select("id,display_name,avatar_color").in("id", userIds)
+      : { data: [], error: null };
+    if (profileResult.error) databaseError(profileResult.error);
+    const profiles = new Map(((profileResult.data ?? []) as DbProfile[]).map((profile) => [profile.id, profile]));
+    const playerMeta = members.map((member) => {
+      const profile = profiles.get(member.user_id);
+      return {
+        id: member.user_id,
+        displayName: profile?.display_name ?? "Player",
+        avatarColor: member.token_color || profile?.avatar_color || "#4f8cff",
+        seat: member.seat,
+        memberStatus: member.status,
+      } satisfies PlayerMeta;
+    });
     return {
-      id: member.user_id,
-      displayName: profile?.display_name ?? "Player",
-      avatarColor: profile?.avatar_color ?? "#4f8cff",
-      seat: member.seat,
-      memberStatus: member.status,
-    } satisfies PlayerMeta;
-  });
-  return {
-    game,
-    members,
-    playerMeta,
-    privateVersion: privateResult.data.version as number,
-    publicVersion: snapshotResult.data.version as number,
-    privateState: privateResult.data.state as PrivateGameState,
-    publicSnapshot: snapshotResult.data.snapshot as PublicGameSnapshot,
-  };
+      game,
+      members,
+      playerMeta,
+      privateVersion,
+      publicVersion,
+      privateState: privateResult.data.state as PrivateGameState,
+      publicSnapshot: snapshotResult.data.snapshot as PublicGameSnapshot,
+    };
+  }
+  // The loop always returns or throws above; this keeps TypeScript exhaustive.
+  throw new HttpError(409, "SNAPSHOT_RETRY", "The board updated while loading; retry the snapshot");
 }
 
 export function requireGameMember(bundle: Pick<GameBundle, "members">, userId: string): DbMember {
@@ -112,8 +137,17 @@ export function rpcResultOrThrow(value: unknown): Record<string, unknown> {
   const result = value as Record<string, unknown>;
   if (result.ok === true) return result;
   const code = typeof result.code === "string" ? result.code : "ACTION_REJECTED";
-  const status = code === "GAME_NOT_FOUND" ? 404 : code === "STALE_VERSION" ? 409 : 400;
+  const status = code === "GAME_NOT_FOUND" ? 404 : code === "HOST_ONLY" || code === "NOT_A_MEMBER" ? 403 : code === "STALE_VERSION" || code === "DEADLINE_EXPIRED" || code === "LOBBY_CHANGED" ? 409 : 400;
   throw new HttpError(status, code, "The game state changed; refresh and try again", { currentVersion: result.currentVersion });
+}
+
+/** Replaces internal UUIDs in engine-authored prose before it reaches the HUD. */
+export function humanizeEvents(events: PublicGameEvent[], playerMeta: PlayerMeta[]): PublicGameEvent[] {
+  return events.map((event) => {
+    let message = event.message;
+    for (const player of playerMeta) message = message.replaceAll(player.id, player.displayName);
+    return { ...event, message };
+  });
 }
 
 /** Covers accounts created before the profile trigger was installed. */

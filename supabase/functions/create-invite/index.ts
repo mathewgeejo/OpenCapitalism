@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { loadGameBundle, requireGameMember } from "../_shared/game-data.ts";
+import { loadGameBundle, requireGameMember, rpcResultOrThrow } from "../_shared/game-data.ts";
 import { HttpError, isUuid, json, optionsResponse, randomToken, readJson, requireUser, serviceClient, sha256Hex, withHttpErrors } from "../_shared/http.ts";
 
 serve((request) => withHttpErrors(request, async () => {
@@ -23,14 +23,15 @@ serve((request) => withHttpErrors(request, async () => {
 
   const inviteToken = randomToken();
   const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
-  const { data, error } = await admin.from("game_invites").insert({
-    game_id: body.gameId,
-    created_by: user.id,
-    invitee_user_id: body.inviteeUserId ?? null,
-    token_digest: await sha256Hex(inviteToken),
-    max_uses: maxUses,
-    expires_at: expiresAt,
-  }).select("id,expires_at,max_uses").single();
+  const { data, error } = await admin.rpc("create_civic_game_invite", {
+    p_game_id: body.gameId,
+    p_actor_id: user.id,
+    p_invitee_user_id: body.inviteeUserId ?? null,
+    p_token_digest: await sha256Hex(inviteToken),
+    p_max_uses: maxUses,
+    p_expires_at: expiresAt,
+  });
   if (error) throw new HttpError(500, "INVITE_CREATE_FAILED", "Could not create the invite");
-  return json(request, { ok: true, invite: { id: data.id, token: inviteToken, expiresAt: data.expires_at, maxUses: data.max_uses } }, 201);
+  const result = rpcResultOrThrow(data);
+  return json(request, { ok: true, invite: { id: result.id, token: inviteToken, expiresAt: result.expiresAt, maxUses: result.maxUses } }, 201);
 }));

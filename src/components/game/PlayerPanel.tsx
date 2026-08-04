@@ -26,6 +26,13 @@ export function PlayerPanel({ game, selectedPlayerId, onSelect }: PlayerPanelPro
           const tile = getPlayerTile(game, player)
           const active = player.id === activeId
           const selected = player.id === selectedPlayerId
+          const netWorth = playerNetWorth(game, player)
+          const statusLabel = player.status === 'bankrupt'
+            ? 'Out of the running'
+            : player.status === 'detained'
+              ? 'In Civic Hold'
+              : `${player.propertyIds.length} assets / ${tile.name}`
+
           return (
             <button
               className={`player-row${active ? ' active' : ''}${selected ? ' selected' : ''}`}
@@ -37,10 +44,13 @@ export function PlayerPanel({ game, selectedPlayerId, onSelect }: PlayerPanelPro
                 {initials(player.name)}
               </span>
               <span>
-                <span className="player-name">{player.name}{active ? ' · TURN' : ''}</span>
-                <span className="player-meta">{player.status === 'bankrupt' ? 'Out of the running' : `${player.propertyIds.length} assets · ${tile.name}`}</span>
+                <span className="player-name">{player.name}{active ? ' / TURN' : ''}</span>
+                <span className="player-meta">{statusLabel}</span>
               </span>
-              <span className="player-cash">{formatCredits(player.cash)}</span>
+              <span className="player-balance" aria-label={`${player.name}: ${formatCredits(player.cash)} cash, ${formatCredits(netWorth)} net worth`}>
+                <span className="player-cash">{formatCredits(player.cash)}</span>
+                <span className="player-worth">NW {formatCredits(netWorth)}</span>
+              </span>
             </button>
           )
         })}

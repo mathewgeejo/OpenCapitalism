@@ -1,24 +1,36 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { applyGameAction, gamePatch, secureDice, toPublicSnapshot } from "../_shared/engine.ts";
-import { loadGameBundle } from "../_shared/game-data.ts";
+import { GameRuleError } from "../_shared/contracts.ts";
+import { humanizeEvents, loadGameBundle } from "../_shared/game-data.ts";
 import { HttpError, json, publishGameUpdate, serviceClient, withHttpErrors } from "../_shared/http.ts";
 
 async function resolveOne(gameId: string): Promise<"resolved" | "skipped"> {
   const admin = serviceClient();
   const bundle = await loadGameBundle(admin, gameId);
-  if (bundle.game.status !== "active" || !bundle.game.turn_deadline_at || new Date(bundle.game.turn_deadline_at).getTime() > Date.now()) return "skipped";
+  const currentTime = Date.now();
+  const turnDue = Boolean(bundle.game.turn_deadline_at && new Date(bundle.game.turn_deadline_at).getTime() <= currentTime);
+  const tradeDue = Boolean(bundle.game.trade_deadline_at && new Date(bundle.game.trade_deadline_at).getTime() <= currentTime);
+  if (bundle.game.status !== "active" || (!turnDue && !tradeDue)) return "skipped";
   const actorId = bundle.privateState.currentPlayerId;
   if (!actorId) return "skipped";
   const now = new Date();
-  const result = applyGameAction(bundle.privateState, { type: "resolve_deadline" }, {
-    actorId,
-    now,
-    isHost: bundle.game.host_user_id === actorId,
-    rollDice: secureDice,
-    makeId: crypto.randomUUID,
-  });
+  let result;
+  try {
+    result = applyGameAction(bundle.privateState, { type: "resolve_deadline" }, {
+      actorId,
+      now,
+      isHost: bundle.game.host_user_id === actorId,
+      rollDice: secureDice,
+      makeId: crypto.randomUUID,
+    });
+  } catch (error) {
+    // A different resolver/action may have won between the due query and this
+    // read. It is a normal no-op, not an operational failure.
+    if (error instanceof GameRuleError && error.code === "NOT_DUE") return "skipped";
+    throw error;
+  }
   const snapshot = toPublicSnapshot(result.state, bundle.playerMeta);
-  const events = result.events.map((event, ordinal) => ({
+  const events = humanizeEvents(result.events, bundle.playerMeta).map((event, ordinal) => ({
     ordinal,
     kind: event.kind,
     actorId: event.actorId ?? actorId,
@@ -49,24 +61,35 @@ serve((request) => withHttpErrors(request, async () => {
   const expectedSecret = Deno.env.get("CRON_SECRET");
   if (!expectedSecret || request.headers.get("x-cron-secret") !== expectedSecret) throw new HttpError(401, "UNAUTHORIZED", "Invalid scheduler credentials");
   const admin = serviceClient();
-  const { data: dueGames, error } = await admin
+  const deadline = new Date().toISOString();
+  const [turnResult, tradeResult] = await Promise.all([
+    admin
     .from("games")
     .select("id")
     .eq("status", "active")
-    .lte("turn_deadline_at", new Date().toISOString())
+    .lte("turn_deadline_at", deadline)
     .order("turn_deadline_at", { ascending: true })
-    .limit(50);
-  if (error) throw new HttpError(500, "DATABASE_ERROR", "Could not inspect expired turns");
+    .limit(50),
+    admin
+      .from("games")
+      .select("id")
+      .eq("status", "active")
+      .lte("trade_deadline_at", deadline)
+      .order("trade_deadline_at", { ascending: true })
+      .limit(50),
+  ]);
+  if (turnResult.error || tradeResult.error) throw new HttpError(500, "DATABASE_ERROR", "Could not inspect expired game deadlines");
+  const dueGameIds = [...new Set([...(turnResult.data ?? []), ...(tradeResult.data ?? [])].map((row) => row.id))].slice(0, 50);
   let resolved = 0;
   let skipped = 0;
   const failures: string[] = [];
-  for (const row of dueGames ?? []) {
+  for (const gameId of dueGameIds) {
     try {
-      if (await resolveOne(row.id) === "resolved") resolved += 1;
+      if (await resolveOne(gameId) === "resolved") resolved += 1;
       else skipped += 1;
     } catch (error) {
-      console.error(`Failed to resolve expired game ${row.id}`, error);
-      failures.push(row.id);
+      console.error(`Failed to resolve expired game ${gameId}`, error);
+      failures.push(gameId);
     }
   }
   return json(request, { ok: true, resolved, skipped, failures });

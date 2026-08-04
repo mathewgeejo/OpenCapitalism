@@ -28,6 +28,7 @@ const envelope: RemoteSnapshotEnvelope = {
       { tileId: 'north-loop', ownerId: 'guest', buildings: 0, mortgaged: true },
     ],
     pendingPurchase: { tileId: 'marina-row', cost: 80 },
+    debt: { playerId: 'host', amount: 120, reason: 'Infrastructure levy' },
     auction: null,
     jackpot: 120,
     lastRoll: { playerId: 'host', dice: [2, 5] },
@@ -43,6 +44,7 @@ describe('remote game adapter', () => {
     expect(state.properties['marina-row']).toMatchObject({ ownerId: 'host', buildings: 2 })
     expect(state.properties['north-loop']).toMatchObject({ ownerId: 'guest', mortgaged: true })
     expect(state.lastRoll).toEqual([2, 5])
+    expect(state.debt).toMatchObject({ playerId: 'host', amount: 120, reason: 'Infrastructure levy' })
     expect(state.events[0]?.message).toBe('rolled 7')
   })
 

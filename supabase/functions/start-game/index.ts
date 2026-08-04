@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { activateGame, createInitialGameState, secureShuffle, toPublicSnapshot } from "../_shared/engine.ts";
+import { activateGame, createInitialGameState, secureShuffle, toPublicSnapshot, toViewerSnapshot } from "../_shared/engine.ts";
 import { normalizeSettings } from "../_shared/contracts.ts";
 import { loadGameBundle, requireGameMember, rpcResultOrThrow } from "../_shared/game-data.ts";
 import { HttpError, isUuid, json, optionsResponse, publishGameUpdate, readJson, requireUser, serviceClient, withHttpErrors } from "../_shared/http.ts";
@@ -29,6 +29,7 @@ serve((request) => withHttpErrors(request, async () => {
     p_game_id: body.gameId,
     p_actor_id: user.id,
     p_known_version: body.knownVersion,
+    p_joined_player_ids: members.map((member) => member.id),
     p_current_player_id: state.currentPlayerId,
     p_turn_deadline_at: state.turnDeadlineAt,
     p_public_snapshot: snapshot,
@@ -37,5 +38,5 @@ serve((request) => withHttpErrors(request, async () => {
   if (error) throw new HttpError(500, "START_FAILED", "Could not start the game");
   const result = rpcResultOrThrow(data);
   await publishGameUpdate(admin, body.gameId, { version: result.version, eventIds: result.eventIds, event: "game-updated" });
-  return json(request, { ok: true, version: result.version, snapshot });
+  return json(request, { ok: true, version: result.version, snapshot: toViewerSnapshot(snapshot, state, user.id) });
 }));

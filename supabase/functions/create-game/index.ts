@@ -24,7 +24,9 @@ serve((request) => withHttpErrors(request, async () => {
   const host = await ensureProfile(admin, user);
   const gameId = crypto.randomUUID();
   const state = createInitialGameState([user.id], settings, new Date(), secureShuffle);
-  const snapshot = toPublicSnapshot(state, [{ ...host, seat: 0 }]);
+  // Mirrors `civic_seat_color(0)` in the migration; game snapshots use the
+  // room-local seat palette rather than the account-wide profile colour.
+  const snapshot = toPublicSnapshot(state, [{ ...host, seat: 0, avatarColor: "#ef4444" }]);
   const { data, error } = await admin.rpc("bootstrap_civic_game", {
     p_game_id: gameId,
     p_creator_id: user.id,

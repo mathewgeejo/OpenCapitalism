@@ -1,12 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { AuthPanel } from './components/AuthPanel'
+import { PasswordRecovery } from './components/PasswordRecovery'
 import { LobbyScreen, type CreateRoomOptions, type LobbyRoom } from './components/lobby/LobbyScreen'
 import { Toast } from './components/Toast'
 import { createGameState, GameRuleError, reduceGame, type GameAction, type GameState, type PublicGameState } from './game'
 import { fetchGameSnapshot, submitGameAction, subscribeToGameVersion } from './lib/gameApi'
-import { adaptRemoteGame, toServerAction, type RemoteGameMeta } from './lib/remoteGame'
-import { createInvite, createRoom, joinRoom, joinRoomByInvite, listAvailableRooms, startRoom } from './lib/roomsApi'
+import { adaptRemoteGame, toServerAction, type RemoteGameMeta, type RemoteSnapshotEnvelope } from './lib/remoteGame'
+import { createInvite, createRoom, joinRoom, joinRoomByInvite, leaveLobbyRoom, listAvailableRooms, startRoom } from './lib/roomsApi'
 import { isSupabaseConfigured } from './lib/supabase'
 import { useAuth } from './lib/useAuth'
 
@@ -18,6 +19,20 @@ const DEMO_ROOMS: LobbyRoom[] = [
   { id: 'night-market', title: 'Night Market Council', seats: 8, maxPlayers: 20, visibility: 'public', status: 'waiting', host: 'Milo Chen' },
   { id: 'orchard-summit', title: 'Orchard Summit', seats: 14, maxPlayers: 20, visibility: 'public', status: 'in-progress', host: 'Jun Park' },
 ]
+
+const ACTIVE_GAME_STORAGE_KEY = 'civic-fortune:active-game-id'
+
+function rememberActiveGame(gameId: string) {
+  try { window.localStorage.setItem(ACTIVE_GAME_STORAGE_KEY, gameId) } catch { /* storage is optional */ }
+}
+
+function forgetActiveGame() {
+  try { window.localStorage.removeItem(ACTIVE_GAME_STORAGE_KEY) } catch { /* storage is optional */ }
+}
+
+function rememberedGameId(): string | null {
+  try { return window.localStorage.getItem(ACTIVE_GAME_STORAGE_KEY) } catch { return null }
+}
 
 function createDemoGame(): GameState {
   const started = reduceGame(
@@ -113,7 +128,7 @@ function chooseAutomatedAction(game: GameState): GameAction | null {
 }
 
 export default function App() {
-  const { user, loading, signOut } = useAuth()
+  const { user, loading, recoveringPassword, clearPasswordRecovery, signOut } = useAuth()
   const [screen, setScreen] = useState<'auth' | 'lobby' | 'game'>(isSupabaseConfigured ? 'auth' : 'auth')
   const [game, setGame] = useState<GameState>(() => createDemoGame())
   const [remoteGame, setRemoteGame] = useState<PublicGameState | null>(null)
@@ -121,6 +136,8 @@ export default function App() {
   const [remoteConnected, setRemoteConnected] = useState(false)
   const [rooms, setRooms] = useState<LobbyRoom[]>(DEMO_ROOMS)
   const [notice, setNotice] = useState<string | null>(null)
+  const remoteVersionRef = useRef<{ id: string; version: number } | null>(null)
+  const restoreAttemptRef = useRef<string | null>(null)
 
   const displayName = useMemo(() => {
     const metadataName = user?.user_metadata?.full_name ?? user?.user_metadata?.name
@@ -128,15 +145,57 @@ export default function App() {
   }, [user])
 
   useEffect(() => {
-    if (user) setScreen((current) => current === 'auth' ? 'lobby' : current)
-  }, [user])
+    if (user && !recoveringPassword) setScreen((current) => current === 'auth' ? 'lobby' : current)
+  }, [recoveringPassword, user])
 
-  const refreshRemoteGame = useCallback(async (gameId: string) => {
-    const envelope = await fetchGameSnapshot(gameId)
-    setRemoteMeta(envelope.game)
-    setRemoteGame(adaptRemoteGame(envelope))
-    return envelope
+  // A JWT can expire while a table is open. Keep the remembered room so the
+  // same player can resume after signing in again, but never leave its board
+  // interactive under an anonymous/fallback identity.
+  useEffect(() => {
+    if (!isSupabaseConfigured || user || !remoteMeta) return
+    remoteVersionRef.current = null
+    restoreAttemptRef.current = null
+    setRemoteGame(null)
+    setRemoteMeta(null)
+    setRemoteConnected(false)
+    setScreen('auth')
+    setNotice('Your session expired. Sign in again to restore your saved table.')
+  }, [remoteMeta, user])
+
+  /**
+   * Snapshot requests may complete out of order. This synchronous version
+   * guard ensures an older response can never overwrite a newer board.
+   */
+  const applyRemoteEnvelope = useCallback((envelope: RemoteSnapshotEnvelope) => {
+    const nextMeta = envelope.game
+    const known = remoteVersionRef.current
+    if (!known || known.id !== nextMeta.id || known.version > nextMeta.version) return false
+
+    remoteVersionRef.current = { id: nextMeta.id, version: nextMeta.version }
+    setRemoteMeta((current) => current?.id === nextMeta.id && current.version > nextMeta.version ? current : nextMeta)
+    setRemoteGame((current) => {
+      const newest = remoteVersionRef.current
+      if (!newest || newest.id !== nextMeta.id || newest.version !== nextMeta.version) return current
+      const next = adaptRemoteGame(envelope)
+      // Action responses can omit the feed page; preserve it until the
+      // subsequent authoritative snapshot arrives.
+      if ((!envelope.events || envelope.events.length === 0) && current?.id === next.id) next.events = current.events
+      return next
+    })
+    return true
   }, [])
+
+  const refreshRemoteGame = useCallback(async (gameId: string, announcedVersion?: number) => {
+    let envelope = await fetchGameSnapshot(gameId)
+    // A broadcast follows the commit, but a very fast read can still observe
+    // the previous version. Retry once before surfacing a reconnect failure.
+    if (announcedVersion !== undefined && envelope.game.version < announcedVersion) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 180))
+      envelope = await fetchGameSnapshot(gameId)
+    }
+    applyRemoteEnvelope(envelope)
+    return envelope
+  }, [applyRemoteEnvelope])
 
   useEffect(() => {
     if (!user || !isSupabaseConfigured || screen !== 'lobby') return
@@ -147,11 +206,44 @@ export default function App() {
     return () => { disposed = true }
   }, [screen, user])
 
+  // Active rooms survive a browser refresh. Membership is re-authorized by
+  // the snapshot function before any saved board is rendered.
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured || remoteMeta || restoreAttemptRef.current === user.id) return
+    restoreAttemptRef.current = user.id
+    const gameId = rememberedGameId()
+    if (!gameId) return
+    let disposed = false
+    remoteVersionRef.current = { id: gameId, version: -1 }
+    void refreshRemoteGame(gameId)
+      .then(() => {
+        if (!disposed) setScreen('game')
+      })
+      .catch(() => {
+        if (!disposed) {
+          forgetActiveGame()
+          remoteVersionRef.current = null
+        }
+      })
+    return () => { disposed = true }
+  }, [refreshRemoteGame, remoteMeta, user])
+
   useEffect(() => {
     if (screen !== 'game' || !remoteMeta?.id) return
-    return subscribeToGameVersion(remoteMeta.id, () => {
-      void refreshRemoteGame(remoteMeta.id).catch(() => setNotice('A live update could not be loaded. Reconnecting…'))
-    }, (connected) => setRemoteConnected(connected))
+    return subscribeToGameVersion(remoteMeta.id, (signal) => {
+      const known = remoteVersionRef.current
+      // Delivery is at-least-once; only snapshots ahead of the local version
+      // can change the board. Any version gap is healed by fetching a full
+      // saved snapshot rather than trying to patch client state.
+      // Membership and host changes intentionally share the state version in
+      // the lobby, so an equal-version notification must still refresh their
+      // metadata. Older versions can never improve the current snapshot.
+      if (!known || known.id !== remoteMeta.id || signal.version < known.version) return
+      void refreshRemoteGame(remoteMeta.id, signal.version).catch(() => setNotice('A live update could not be loaded. Reconnecting…'))
+    }, (connected) => {
+      setRemoteConnected(connected)
+      if (connected) void refreshRemoteGame(remoteMeta.id).catch(() => setNotice('Connection restored, but the latest board is still loading.'))
+    })
   }, [remoteMeta?.id, refreshRemoteGame, screen])
 
   const applyAction = (action: GameAction) => {
@@ -168,9 +260,7 @@ export default function App() {
       if (action.type === 'START_GAME') {
         const started = await startRoom(remoteMeta.id, remoteGame.version)
         const meta = { ...remoteMeta, status: 'active', version: started.version }
-        setRemoteMeta(meta)
-        const next = adaptRemoteGame({ ok: true, game: meta, snapshot: started.snapshot, events: [] })
-        setRemoteGame({ ...next, events: remoteGame.events })
+        applyRemoteEnvelope({ ok: true, game: meta, snapshot: started.snapshot, events: [] })
         void refreshRemoteGame(meta.id).catch(() => undefined)
         return
       }
@@ -183,9 +273,7 @@ export default function App() {
         return
       }
       const meta = { ...remoteMeta, version: response.version }
-      setRemoteMeta(meta)
-      const next = adaptRemoteGame({ ok: true, game: meta, snapshot, events: [] })
-      setRemoteGame({ ...next, events: remoteGame.events })
+      applyRemoteEnvelope({ ok: true, game: meta, snapshot, events: response.events })
       void refreshRemoteGame(meta.id).catch(() => undefined)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'The city service rejected that action.')
@@ -204,6 +292,7 @@ export default function App() {
   }, [game, remoteGame, screen])
 
   const openDemo = () => {
+    remoteVersionRef.current = null
     setRemoteGame(null)
     setRemoteMeta(null)
     setRemoteConnected(false)
@@ -212,6 +301,9 @@ export default function App() {
   }
 
   const returnFromGame = () => {
+    if (remoteMeta && remoteGame?.status === 'waiting') void leaveLobbyRoom(remoteMeta.id).catch(() => undefined)
+    remoteVersionRef.current = null
+    forgetActiveGame()
     setRemoteGame(null)
     setRemoteMeta(null)
     setRemoteConnected(false)
@@ -219,11 +311,15 @@ export default function App() {
   }
 
   const enterRemoteRoom = async (gameId: string, alreadyJoined = false) => {
+    const previousRef = remoteVersionRef.current
+    remoteVersionRef.current = { id: gameId, version: -1 }
     try {
       if (!alreadyJoined) await joinRoom(gameId)
       await refreshRemoteGame(gameId)
+      rememberActiveGame(gameId)
       setScreen('game')
     } catch (error) {
+      remoteVersionRef.current = previousRef
       setNotice(error instanceof Error ? error.message : 'That table could not be opened.')
     }
   }
@@ -265,6 +361,10 @@ export default function App() {
     return <main className="loading-page"><LoaderCircle className="loading-spinner" size={30} /> Restoring your civic profile…</main>
   }
 
+  if (recoveringPassword) {
+    return <><PasswordRecovery onNotice={setNotice} onComplete={() => { clearPasswordRecovery(); setScreen('lobby') }} /><Toast message={notice} onDismiss={() => setNotice(null)} /></>
+  }
+
   const lobby = (
     <LobbyScreen
       displayName={displayName}
@@ -285,6 +385,7 @@ export default function App() {
       onStartDemo={openDemo}
       onSignOut={() => {
         if (user) void signOut()
+        remoteVersionRef.current = null
         setRemoteGame(null)
         setRemoteMeta(null)
         setRemoteConnected(false)
@@ -299,7 +400,7 @@ export default function App() {
         <Suspense fallback={<main className="loading-page"><LoaderCircle className="loading-spinner" size={30} /> Preparing the city table…</main>}>
           <GameTable
             game={remoteGame ?? game}
-            actorId={remoteGame && user ? user.id : LOCAL_PLAYER_ID}
+            actorId={remoteGame ? user?.id ?? '' : LOCAL_PLAYER_ID}
             connected={remoteGame ? remoteConnected : false}
             roomTitle={remoteMeta?.title}
             roomVisibility={remoteMeta?.visibility}

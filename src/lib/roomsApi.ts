@@ -80,6 +80,12 @@ export async function startRoom(gameId: string, knownVersion: number) {
   return data
 }
 
+export async function leaveLobbyRoom(gameId: string) {
+  const client = clientOrThrow()
+  const { error } = await client.functions.invoke('leave-game', { body: { gameId } })
+  if (error) throw error
+}
+
 export async function createInvite(gameId: string) {
   const client = clientOrThrow()
   const { data, error } = await client.functions.invoke<{ invite?: { token?: string } }>('create-invite', { body: { gameId } })

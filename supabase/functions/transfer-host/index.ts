@@ -18,6 +18,6 @@ serve((request) => withHttpErrors(request, async () => {
   if (error) throw new HttpError(500, "TRANSFER_FAILED", "Could not transfer room host status");
   const result = rpcResultOrThrow(data);
   const bundle = await loadGameBundle(admin, body.gameId);
-  await publishGameUpdate(admin, body.gameId, { version: bundle.game.state_version, event: "host-changed", hostUserId: result.hostUserId });
+  await publishGameUpdate(admin, body.gameId, { version: bundle.game.state_version, event: "game-updated", hostUserId: result.hostUserId });
   return json(request, { ok: true, hostUserId: result.hostUserId });
 }));

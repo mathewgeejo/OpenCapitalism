@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { applyGameAction, gamePatch, secureDice, toPublicSnapshot } from "../_shared/engine.ts";
+import { applyGameAction, gamePatch, secureDice, toPublicSnapshot, toViewerSnapshot } from "../_shared/engine.ts";
 import { GameRuleError, parseGameAction, type GameAction } from "../_shared/contracts.ts";
-import { loadGameBundle, requireGameMember, rpcResultOrThrow } from "../_shared/game-data.ts";
+import { humanizeEvents, loadGameBundle, requireGameMember, rpcResultOrThrow } from "../_shared/game-data.ts";
 import { HttpError, isUuid, json, optionsResponse, publishGameUpdate, readJson, requireUser, serviceClient, withHttpErrors } from "../_shared/http.ts";
 
 const ruleHttpError = (error: GameRuleError): HttpError => {
@@ -42,14 +42,15 @@ serve((request) => withHttpErrors(request, async () => {
     .maybeSingle();
   if (receiptResult.error) throw new HttpError(500, "RECEIPT_LOOKUP_FAILED", "Could not verify the action retry");
   if (receiptResult.data) {
+    const snapshot = toViewerSnapshot(bundle.publicSnapshot, bundle.privateState, user.id);
     return json(request, {
       ok: true,
       duplicate: true,
       version: bundle.game.state_version,
       committedVersion: receiptResult.data.applied_version,
       reconcile: true,
-      snapshot: bundle.publicSnapshot,
-      state: bundle.publicSnapshot,
+      snapshot,
+      state: snapshot,
       events: [],
     });
   }
@@ -75,8 +76,10 @@ serve((request) => withHttpErrors(request, async () => {
     if (error instanceof GameRuleError) throw ruleHttpError(error);
     throw error;
   }
-  const snapshot = toPublicSnapshot(result.state, bundle.playerMeta);
-  const events = result.events.map((event, ordinal) => ({
+  const publicSnapshot = toPublicSnapshot(result.state, bundle.playerMeta);
+  const snapshot = toViewerSnapshot(publicSnapshot, result.state, user.id);
+  const publicEvents = humanizeEvents(result.events, bundle.playerMeta);
+  const events = publicEvents.map((event, ordinal) => ({
     ordinal,
     kind: event.kind,
     actorId: event.actorId ?? user.id,
@@ -91,7 +94,7 @@ serve((request) => withHttpErrors(request, async () => {
     p_client_action_id: body.clientActionId,
     p_action_kind: action.type,
     p_next_game: patch,
-    p_public_snapshot: snapshot,
+    p_public_snapshot: publicSnapshot,
     p_private_state: result.state,
     p_events: events,
     p_member_status_changes: result.memberStatusChanges,
@@ -103,13 +106,14 @@ serve((request) => withHttpErrors(request, async () => {
   const commit = rpcResultOrThrow(data);
   if (commit.duplicate === true) {
     const reconciled = await loadGameBundle(admin, body.gameId);
+    const snapshot = toViewerSnapshot(reconciled.publicSnapshot, reconciled.privateState, user.id);
     return json(request, {
       ok: true,
       duplicate: true,
       version: reconciled.game.state_version,
       reconcile: true,
-      snapshot: reconciled.publicSnapshot,
-      state: reconciled.publicSnapshot,
+      snapshot,
+      state: snapshot,
       events: [],
     });
   }

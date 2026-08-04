@@ -48,6 +48,9 @@ create table if not exists public.games (
   state_version bigint not null default 0 check (state_version >= 0),
   current_player_id uuid references auth.users(id) on delete set null,
   turn_deadline_at timestamptz,
+  -- Earliest open-trade expiry. This lets the scheduler persist expiry even
+  -- when the current turn has not reached its own deadline yet.
+  trade_deadline_at timestamptz,
   started_at timestamptz,
   ended_at timestamptz,
   created_at timestamptz not null default now(),
@@ -62,11 +65,15 @@ create index if not exists games_lobby_idx
 create index if not exists games_deadline_idx
   on public.games (turn_deadline_at)
   where status = 'active' and turn_deadline_at is not null;
+create index if not exists games_trade_deadline_idx
+  on public.games (trade_deadline_at)
+  where status = 'active' and trade_deadline_at is not null;
 
 create table if not exists public.game_members (
   game_id uuid not null references public.games(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   seat smallint not null check (seat between 0 and 19),
+  token_color text not null default '#ef4444' check (token_color ~ '^#[0-9A-Fa-f]{6}$'),
   role public.civic_member_role not null default 'player',
   status public.civic_member_status not null default 'joined',
   joined_at timestamptz not null default now(),
@@ -80,6 +87,22 @@ create index if not exists game_members_user_idx
 create unique index if not exists game_members_active_seat_idx
   on public.game_members (game_id, seat)
   where status <> 'left';
+
+-- Seat colours are room-local so every occupied seat stays distinguishable,
+-- without mutating a person's profile colour globally.
+create or replace function public.civic_seat_color(p_seat smallint)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select (array[
+    '#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7',
+    '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16',
+    '#06b6d4', '#e11d48', '#8b5cf6', '#65a30d', '#0ea5e9',
+    '#d946ef', '#facc15', '#10b981', '#fb7185', '#64748b'
+  ]::text[])[(p_seat % 20) + 1];
+$$;
 
 create table if not exists public.game_public_snapshots (
   game_id uuid primary key references public.games(id) on delete cascade,
@@ -302,6 +325,7 @@ declare
   requested_status public.civic_game_status;
   requested_player uuid;
   requested_deadline timestamptz;
+  requested_trade_deadline timestamptz;
 begin
   if jsonb_typeof(p_next_game) <> 'object'
      or jsonb_typeof(p_public_snapshot) <> 'object'
@@ -336,6 +360,14 @@ begin
     return jsonb_build_object('ok', false, 'code', 'NOT_A_MEMBER');
   end if;
 
+  -- The host can change between the Edge read and this locked commit. Recheck
+  -- host-only intents here so the previous host cannot pause/resume/end after
+  -- a successful transfer.
+  if p_action_kind in ('pause_game', 'resume_game', 'end_game')
+     and current_game.host_user_id <> p_actor_id then
+    return jsonb_build_object('ok', false, 'code', 'HOST_ONLY');
+  end if;
+
   if current_game.state_version <> p_known_version then
     return jsonb_build_object('ok', false, 'code', 'STALE_VERSION', 'currentVersion', current_game.state_version);
   end if;
@@ -350,6 +382,9 @@ begin
   requested_status := coalesce((p_next_game ->> 'status')::public.civic_game_status, current_game.status);
   requested_player := nullif(p_next_game ->> 'currentPlayerId', '')::uuid;
   requested_deadline := nullif(p_next_game ->> 'turnDeadlineAt', '')::timestamptz;
+  select min(nullif(trade.value ->> 'expiresAt', '')::timestamptz)
+  into requested_trade_deadline
+  from jsonb_array_elements(coalesce(p_private_state -> 'trades', '[]'::jsonb)) as trade(value);
   next_version := current_game.state_version + 1;
 
   update public.games
@@ -357,6 +392,7 @@ begin
       status = requested_status,
       current_player_id = requested_player,
       turn_deadline_at = requested_deadline,
+      trade_deadline_at = requested_trade_deadline,
       started_at = case when requested_status = 'active' and started_at is null then now() else started_at end,
       ended_at = case when requested_status in ('finished', 'abandoned') then coalesce(ended_at, now()) else ended_at end
   where id = p_game_id;
@@ -436,8 +472,8 @@ begin
 
   insert into public.games (id, title, visibility, created_by, host_user_id, max_players, settings)
   values (p_game_id, trim(p_title), p_visibility, p_creator_id, p_creator_id, p_max_players, p_settings);
-  insert into public.game_members (game_id, user_id, seat, role)
-  values (p_game_id, p_creator_id, 0, 'host');
+  insert into public.game_members (game_id, user_id, seat, token_color, role)
+  values (p_game_id, p_creator_id, 0, public.civic_seat_color(0::smallint), 'host');
   insert into public.game_public_snapshots (game_id, version, snapshot)
   values (p_game_id, 0, p_public_snapshot);
   insert into public.game_private_states (game_id, version, state)
@@ -503,7 +539,9 @@ begin
     order by seats.seat limit 1;
     if available_seat is null then return jsonb_build_object('ok', false, 'code', 'ROOM_FULL'); end if;
     update public.game_members
-    set seat = available_seat, status = 'joined', left_at = null, joined_at = now()
+    set seat = available_seat,
+        token_color = public.civic_seat_color(available_seat),
+        status = 'joined', left_at = null, joined_at = now()
     where game_id = p_game_id and user_id = p_user_id;
   else
     select seats.seat::smallint into available_seat
@@ -513,7 +551,8 @@ begin
     )
     order by seats.seat limit 1;
     if available_seat is null then return jsonb_build_object('ok', false, 'code', 'ROOM_FULL'); end if;
-    insert into public.game_members (game_id, user_id, seat, role) values (p_game_id, p_user_id, available_seat, 'player');
+    insert into public.game_members (game_id, user_id, seat, token_color, role)
+    values (p_game_id, p_user_id, available_seat, public.civic_seat_color(available_seat), 'player');
   end if;
 
   if current_game.visibility = 'private' then
@@ -530,6 +569,7 @@ create or replace function public.start_civic_game(
   p_game_id uuid,
   p_actor_id uuid,
   p_known_version bigint,
+  p_joined_player_ids jsonb,
   p_current_player_id uuid,
   p_turn_deadline_at timestamptz,
   p_public_snapshot jsonb,
@@ -545,22 +585,37 @@ declare
   joined_count integer;
   next_version bigint;
   event_id bigint;
+  actual_joined_player_ids jsonb;
 begin
   select * into current_game from public.games where id = p_game_id for update;
   if not found then return jsonb_build_object('ok', false, 'code', 'GAME_NOT_FOUND'); end if;
   if current_game.host_user_id <> p_actor_id then return jsonb_build_object('ok', false, 'code', 'HOST_ONLY'); end if;
   if current_game.status <> 'lobby' then return jsonb_build_object('ok', false, 'code', 'GAME_ALREADY_STARTED'); end if;
   if current_game.state_version <> p_known_version then return jsonb_build_object('ok', false, 'code', 'STALE_VERSION', 'currentVersion', current_game.state_version); end if;
+  if jsonb_typeof(p_joined_player_ids) <> 'array' then return jsonb_build_object('ok', false, 'code', 'INVALID_STATE'); end if;
   select count(*) into joined_count from public.game_members where game_id = p_game_id and status = 'joined';
   if joined_count < 2 then return jsonb_build_object('ok', false, 'code', 'NEED_TWO_PLAYERS'); end if;
+  select coalesce(jsonb_agg(m.user_id order by m.seat), '[]'::jsonb) into actual_joined_player_ids
+  from public.game_members m where m.game_id = p_game_id and m.status = 'joined';
+  if actual_joined_player_ids is distinct from p_joined_player_ids then
+    return jsonb_build_object('ok', false, 'code', 'LOBBY_CHANGED');
+  end if;
   if jsonb_typeof(p_public_snapshot) <> 'object' or jsonb_typeof(p_private_state) <> 'object' then
+    return jsonb_build_object('ok', false, 'code', 'INVALID_STATE');
+  end if;
+  if p_private_state -> 'turnOrder' is distinct from p_joined_player_ids
+     or p_current_player_id is distinct from nullif(p_joined_player_ids ->> 0, '')::uuid then
     return jsonb_build_object('ok', false, 'code', 'INVALID_STATE');
   end if;
 
   next_version := current_game.state_version + 1;
   update public.games
   set state_version = next_version,
-      status = 'active', current_player_id = p_current_player_id, turn_deadline_at = p_turn_deadline_at, started_at = now()
+      status = 'active',
+      current_player_id = p_current_player_id,
+      turn_deadline_at = p_turn_deadline_at,
+      trade_deadline_at = null,
+      started_at = now()
   where id = p_game_id;
   update public.game_public_snapshots set version = next_version, snapshot = p_public_snapshot, updated_at = now() where game_id = p_game_id;
   update public.game_private_states set version = next_version, state = p_private_state, updated_at = now() where game_id = p_game_id;
@@ -616,6 +671,44 @@ begin
 end;
 $$;
 
+create or replace function public.create_civic_game_invite(
+  p_game_id uuid,
+  p_actor_id uuid,
+  p_invitee_user_id uuid,
+  p_token_digest text,
+  p_max_uses smallint,
+  p_expires_at timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_game public.games%rowtype;
+  created_invite public.game_invites%rowtype;
+begin
+  select * into current_game from public.games where id = p_game_id for update;
+  if not found then return jsonb_build_object('ok', false, 'code', 'GAME_NOT_FOUND'); end if;
+  if current_game.host_user_id <> p_actor_id then return jsonb_build_object('ok', false, 'code', 'HOST_ONLY'); end if;
+  if current_game.visibility <> 'private' or current_game.status <> 'lobby' then
+    return jsonb_build_object('ok', false, 'code', 'INVITES_UNAVAILABLE');
+  end if;
+  if char_length(p_token_digest) <> 64 or p_max_uses not between 1 and 20 or p_expires_at <= now() then
+    return jsonb_build_object('ok', false, 'code', 'INVALID_INVITE');
+  end if;
+  insert into public.game_invites (game_id, created_by, invitee_user_id, token_digest, max_uses, expires_at)
+  values (p_game_id, p_actor_id, p_invitee_user_id, p_token_digest, p_max_uses, p_expires_at)
+  returning * into created_invite;
+  return jsonb_build_object(
+    'ok', true,
+    'id', created_invite.id,
+    'expiresAt', created_invite.expires_at,
+    'maxUses', created_invite.max_uses
+  );
+end;
+$$;
+
 -- Safe public-lobby discovery: do not expose member identities or private rooms
 -- to a user who has not joined. This bypasses member-table RLS only for this
 -- deliberately small projection.
@@ -656,17 +749,23 @@ $$;
 revoke all on function public.commit_civic_game_action(uuid, uuid, bigint, uuid, text, jsonb, jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.bootstrap_civic_game(uuid, uuid, text, public.civic_game_visibility, smallint, jsonb, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.join_civic_game(uuid, uuid, text) from public, anon, authenticated;
-revoke all on function public.start_civic_game(uuid, uuid, bigint, uuid, timestamptz, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.start_civic_game(uuid, uuid, bigint, jsonb, uuid, timestamptz, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function public.leave_civic_game(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.transfer_civic_game_host(uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.create_civic_game_invite(uuid, uuid, uuid, text, smallint, timestamptz) from public, anon, authenticated;
 revoke all on function public.list_public_civic_lobbies() from public, anon;
+revoke all on function public.is_civic_game_member(uuid, uuid) from public, anon;
+revoke all on function public.is_civic_game_host(uuid, uuid) from public, anon;
 grant execute on function public.commit_civic_game_action(uuid, uuid, bigint, uuid, text, jsonb, jsonb, jsonb, jsonb, jsonb) to service_role;
 grant execute on function public.bootstrap_civic_game(uuid, uuid, text, public.civic_game_visibility, smallint, jsonb, jsonb, jsonb) to service_role;
 grant execute on function public.join_civic_game(uuid, uuid, text) to service_role;
-grant execute on function public.start_civic_game(uuid, uuid, bigint, uuid, timestamptz, jsonb, jsonb) to service_role;
+grant execute on function public.start_civic_game(uuid, uuid, bigint, jsonb, uuid, timestamptz, jsonb, jsonb) to service_role;
 grant execute on function public.leave_civic_game(uuid, uuid) to service_role;
 grant execute on function public.transfer_civic_game_host(uuid, uuid, uuid) to service_role;
+grant execute on function public.create_civic_game_invite(uuid, uuid, uuid, text, smallint, timestamptz) to service_role;
 grant execute on function public.list_public_civic_lobbies() to authenticated, service_role;
+grant execute on function public.is_civic_game_member(uuid, uuid) to authenticated, service_role;
+grant execute on function public.is_civic_game_host(uuid, uuid) to authenticated, service_role;
 
 -- Private Realtime authorization: members may subscribe to `game:<uuid>` and
 -- publish Presence only. Only service-role Edge Functions broadcast state events.

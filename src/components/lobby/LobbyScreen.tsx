@@ -294,7 +294,7 @@ export function LobbyScreen({
               <label>Seats<select value={maxPlayers} onChange={(event) => setMaxPlayers(Number(event.target.value))}><option value={4}>4 players</option><option value={8}>8 players</option><option value={12}>12 players</option><option value={20}>20 players</option></select></label>
               <label>Turn timer<select value={turnSeconds} onChange={(event) => setTurnSeconds(Number(event.target.value))}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option><option value={60}>60 seconds</option></select></label>
               <label>Auction timer<select value={auctionSeconds} onChange={(event) => setAuctionSeconds(Number(event.target.value))}><option value={15}>15 seconds</option><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label>
-              <label>Start bonus<select value={startBonus} onChange={(event) => setStartBonus(Number(event.target.value))}><option value={150}>¤150</option><option value={200}>¤200</option><option value={250}>¤250</option><option value={300}>¤300</option></select></label>
+              <label>Start bonus<select value={startBonus} onChange={(event) => setStartBonus(Number(event.target.value))}><option value={150}>$150</option><option value={200}>$200</option><option value={250}>$250</option><option value={300}>$300</option></select></label>
             </div>
             <div className="create-room-toggles">
               <label><input type="checkbox" checked={fastAnimation} onChange={(event) => setFastAnimation(event.target.checked)} /> Fast table animations</label>

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { toViewerSnapshot } from "../_shared/engine.ts";
 import { loadGameBundle, requireGameMember } from "../_shared/game-data.ts";
 import { HttpError, isUuid, json, optionsResponse, readJson, requireUser, serviceClient, withHttpErrors } from "../_shared/http.ts";
 
@@ -20,6 +21,13 @@ serve((request) => withHttpErrors(request, async () => {
   const admin = serviceClient();
   const bundle = await loadGameBundle(admin, gameId);
   requireGameMember(bundle, user.id);
+  // `members` makes a lobby immediately renderable even though its immutable
+  // turnOrder still contains only the host until the game starts. Terms for
+  // open trades are appended only for this authenticated trade participant.
+  const snapshot = {
+    ...toViewerSnapshot(bundle.publicSnapshot, bundle.privateState, user.id),
+    members: bundle.playerMeta,
+  };
   let eventsQuery = admin
     .from("game_events")
     .select("id,version,ordinal,kind,actor_id,message,data,created_at")
@@ -43,7 +51,7 @@ serve((request) => withHttpErrors(request, async () => {
       turnDeadlineAt: bundle.game.turn_deadline_at,
     },
     members: bundle.playerMeta,
-    snapshot: bundle.publicSnapshot,
+    snapshot,
     // Initial loads get the latest page but preserve oldest→newest rendering.
     events: afterEventId === null ? [...(events ?? [])].reverse() : events ?? [],
   });

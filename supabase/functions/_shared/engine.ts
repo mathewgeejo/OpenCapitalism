@@ -21,6 +21,7 @@ import {
   type PrivateGameState,
   type PublicGameEvent,
   type PublicGameSnapshot,
+  type ViewerGameSnapshot,
   GameRuleError,
 } from "./contracts.ts";
 
@@ -166,7 +167,7 @@ function moveBy(state: PrivateGameState, playerId: string, steps: number, events
   player.position = absolute % BOARD.length;
   if (absolute >= BOARD.length) {
     credit(state, playerId, state.settings.startBonus);
-    events.push({ kind: "start_bonus", actorId: playerId, message: `Passed Harbor Gate and collected ${money(state.settings.startBonus)}`, data: { amount: state.settings.startBonus } });
+    events.push({ kind: "start_bonus", actorId: playerId, message: `Passed Founders' Plaza and collected ${money(state.settings.startBonus)}`, data: { amount: state.settings.startBonus } });
   }
 }
 
@@ -174,7 +175,7 @@ function moveTo(state: PrivateGameState, playerId: string, position: number, eve
   const player = state.players[playerId];
   if (collectStart && position < player.position) {
     credit(state, playerId, state.settings.startBonus);
-    events.push({ kind: "start_bonus", actorId: playerId, message: `Passed Harbor Gate and collected ${money(state.settings.startBonus)}`, data: { amount: state.settings.startBonus } });
+    events.push({ kind: "start_bonus", actorId: playerId, message: `Passed Founders' Plaza and collected ${money(state.settings.startBonus)}`, data: { amount: state.settings.startBonus } });
   }
   player.position = position;
 }
@@ -187,7 +188,7 @@ function sendToDetention(state: PrivateGameState, playerId: string, events: Publ
   player.doublesThisTurn = 0;
   state.canRollAgain = false;
   state.phase = "await_end_turn";
-  events.push({ kind: "detained", actorId: playerId, message: `${reason}; sent to Civic Holding`, data: { position: DETENTION_INDEX } });
+  events.push({ kind: "detained", actorId: playerId, message: `${reason}; sent to Civic Hold`, data: { position: DETENTION_INDEX } });
 }
 
 function calculateRent(state: PrivateGameState, tile: ReturnType<typeof assetTile>, rollTotal: number): number {
@@ -290,10 +291,9 @@ function resolveLanding(state: PrivateGameState, playerId: string, ctx: EngineCo
     return;
   }
   if (tile.kind === "corner") {
-    if (tile.effect === "start") {
-      credit(state, playerId, state.settings.startBonus);
-      events.push({ kind: "start_bonus", actorId: playerId, message: `Landed on Harbor Gate and collected ${money(state.settings.startBonus)}`, data: { amount: state.settings.startBonus } });
-    } else if (tile.effect === "commons" && state.settings.jackpotEnabled && state.jackpot > 0) {
+    // Movement pays the Founders' Plaza dividend on crossing/arriving. Do not
+    // award it a second time merely because the landing resolver sees Start.
+    if (tile.effect === "commons" && state.settings.jackpotEnabled && state.jackpot > 0) {
       const reward = state.jackpot;
       state.jackpot = 0;
       credit(state, playerId, reward);
@@ -457,7 +457,6 @@ function transferTrade(state: PrivateGameState, actorId: string, tradeId: string
   const trade = state.trades[index];
   if (trade.toUserId !== actorId) rule("NOT_TRADE_RECIPIENT", "Only the invited player can respond");
   if (new Date(trade.expiresAt).getTime() <= ctx.now.getTime()) {
-    state.trades.splice(index, 1);
     rule("TRADE_EXPIRED", "That trade has expired");
   }
   if (!accept) {
@@ -476,6 +475,30 @@ function transferTrade(state: PrivateGameState, actorId: string, tradeId: string
   for (const tileId of trade.requestTileIds) state.assets[tileId].ownerId = trade.fromUserId;
   state.trades.splice(index, 1);
   events.push({ kind: "trade_completed", actorId, message: `${trade.fromUserId} and ${trade.toUserId} completed a trade`, data: { tradeId } });
+}
+
+/**
+ * Expiry is part of canonical state, not a visual-only timer. Every mutating
+ * engine pass prunes elapsed offers; the deadline resolver also commits this
+ * cleanup when a trade expiry is the next scheduled deadline.
+ */
+function pruneExpiredTrades(state: PrivateGameState, now: Date, events: PublicGameEvent[]): Set<string> {
+  const expired = state.trades.filter((trade) => {
+    const timestamp = new Date(trade.expiresAt).getTime();
+    return !Number.isFinite(timestamp) || timestamp <= now.getTime();
+  });
+  if (expired.length === 0) return new Set();
+  const expiredIds = new Set(expired.map((trade) => trade.id));
+  state.trades = state.trades.filter((trade) => !expiredIds.has(trade.id));
+  for (const trade of expired) {
+    events.push({
+      kind: "trade_expired",
+      actorId: trade.fromUserId,
+      message: `${trade.fromUserId}'s trade offer expired`,
+      data: { tradeId: trade.id },
+    });
+  }
+  return expiredIds;
 }
 
 function bankruptPlayer(state: PrivateGameState, playerId: string, ctx: EngineContext, events: PublicGameEvent[], changes: EngineResult["memberStatusChanges"]) {
@@ -560,9 +583,11 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
   const memberStatusChanges: EngineResult["memberStatusChanges"] = [];
   const actorId = ctx.actorId;
   assertKnownPlayer(state, actorId);
+  const expiredTradeIds = pruneExpiredTrades(state, ctx.now, events);
 
   const requireTurn = () => { assertActive(state); assertTurn(state, actorId); };
   const managementPhase = () => assertPhase(state, "await_roll", "await_end_turn");
+  const liquidationPhase = () => assertPhase(state, "await_roll", "await_end_turn", "await_debt");
 
   // The scheduler resolves expiry, but do not let a late client intent sneak
   // in during its polling window. The transaction RPC repeats this check under
@@ -616,7 +641,12 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
   if (action.type === "resolve_deadline") {
     assertActive(state);
     const deadline = state.auction?.endsAt ?? state.turnDeadlineAt;
-    if (!deadline || new Date(deadline).getTime() > ctx.now.getTime()) rule("NOT_DUE", "This deadline has not expired");
+    // Trade expiry may be the scheduler's earliest deadline even when the
+    // active turn still has time remaining. Commit the prune by itself.
+    if (!deadline || new Date(deadline).getTime() > ctx.now.getTime()) {
+      if (expiredTradeIds.size > 0) return { state, events, memberStatusChanges };
+      rule("NOT_DUE", "This deadline has not expired");
+    }
     if (state.auction) {
       settleAuction(state, ctx, events);
     } else if (state.pendingPurchase) {
@@ -632,12 +662,20 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
 
   if (action.type === "respond_trade") {
     assertActive(state);
-    if (state.auction || state.pendingDebt) rule("TRADE_UNAVAILABLE", "Trades are not available while a resolution is pending");
+    if (state.auction) rule("TRADE_UNAVAILABLE", "Trades are not available during an auction");
+    if (expiredTradeIds.has(action.tradeId)) return { state, events, memberStatusChanges };
+    if (state.pendingDebt) {
+      const trade = state.trades.find((candidate) => candidate.id === action.tradeId);
+      if (!trade || (trade.fromUserId !== state.pendingDebt.playerId && trade.toUserId !== state.pendingDebt.playerId)) {
+        rule("TRADE_UNAVAILABLE", "Only a trade involving the debtor may resolve while debt is pending");
+      }
+    }
     transferTrade(state, actorId, action.tradeId, action.accept, ctx, events);
     return { state, events, memberStatusChanges };
   }
   if (action.type === "cancel_trade") {
     assertActive(state);
+    if (expiredTradeIds.has(action.tradeId)) return { state, events, memberStatusChanges };
     const index = state.trades.findIndex((trade) => trade.id === action.tradeId);
     if (index < 0) rule("TRADE_NOT_FOUND", "That trade is no longer available");
     const trade = state.trades[index];
@@ -691,7 +729,7 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
           if (player.detentionAttempts >= 3) {
             player.isDetained = false;
             player.detentionAttempts = 0;
-            charge(state, actorId, 50, null, "Civic Holding release fee", "await_roll", events, true);
+            charge(state, actorId, 50, null, "Civic Hold release fee", "await_roll", events, true);
           } else {
             state.phase = "await_end_turn";
           }
@@ -737,8 +775,8 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
     case "pay_detention": {
       assertPhase(state, "await_roll");
       const player = state.players[actorId];
-      if (!player.isDetained) rule("NOT_DETAINED", "You are not in Civic Holding");
-      if (!charge(state, actorId, 50, null, "Civic Holding release fee", "await_roll", events, true)) return { state, events, memberStatusChanges };
+      if (!player.isDetained) rule("NOT_DETAINED", "You are not in Civic Hold");
+      if (!charge(state, actorId, 50, null, "Civic Hold release fee", "await_roll", events, true)) return { state, events, memberStatusChanges };
       player.isDetained = false;
       player.detentionAttempts = 0;
       return { state, events, memberStatusChanges };
@@ -759,22 +797,22 @@ export function applyGameAction(source: PrivateGameState, action: GameAction, ct
       return { state, events, memberStatusChanges };
     }
     case "sell_building": {
-      managementPhase();
+      liquidationPhase();
       sellBuilding(state, actorId, action.tileId, events);
       return { state, events, memberStatusChanges };
     }
     case "mortgage": {
-      managementPhase();
+      liquidationPhase();
       mortgage(state, actorId, action.tileId, events);
       return { state, events, memberStatusChanges };
     }
     case "unmortgage": {
-      managementPhase();
+      liquidationPhase();
       unmortgage(state, actorId, action.tileId, events);
       return { state, events, memberStatusChanges };
     }
     case "offer_trade": {
-      managementPhase();
+      liquidationPhase();
       if (action.toUserId === actorId) rule("INVALID_TRADE", "You cannot trade with yourself");
       assertKnownPlayer(state, action.toUserId);
       if (state.trades.length >= 20) rule("TOO_MANY_TRADES", "Resolve an existing trade first");
@@ -852,10 +890,47 @@ export function toPublicSnapshot(state: PrivateGameState, playerMeta: PlayerMeta
       mortgaged: state.assets[tile.id].mortgaged,
     })),
     pendingPurchase: state.pendingPurchase ? { ...state.pendingPurchase } : null,
+    debt: state.pendingDebt ? {
+      playerId: state.pendingDebt.playerId,
+      amount: state.pendingDebt.amount,
+      reason: state.pendingDebt.reason,
+    } : null,
     auction: state.auction ? { ...state.auction, passedPlayerIds: [...state.auction.passedPlayerIds] } : null,
     trades: state.trades.map(({ id, fromUserId, toUserId, expiresAt }) => ({ id, fromUserId, toUserId, expiresAt })),
     jackpot: state.jackpot,
     lastRoll: state.lastRoll ? { playerId: state.lastRoll.playerId, dice: [...state.lastRoll.dice] as [number, number] } : null,
+  };
+}
+
+/**
+ * Builds the response-only view for one signed-in member. The persisted
+ * public snapshot remains safe to publish to every room participant; only a
+ * trade's proposer and recipient receive its cash and asset terms.
+ */
+export function toViewerSnapshot(
+  snapshot: PublicGameSnapshot,
+  state: PrivateGameState,
+  viewerId: string,
+): ViewerGameSnapshot {
+  // Explicitly strip response-only fields in case a legacy/incorrect row was
+  // ever written. Do not allow such a row to leak terms to unrelated viewers.
+  const safeSnapshot = structuredClone(snapshot) as PublicGameSnapshot & Record<string, unknown>;
+  delete safeSnapshot.tradeDetails;
+  delete safeSnapshot.members;
+  return {
+    ...safeSnapshot,
+    tradeDetails: state.trades
+      .filter((trade) => trade.fromUserId === viewerId || trade.toUserId === viewerId)
+      .map((trade) => ({
+        id: trade.id,
+        fromUserId: trade.fromUserId,
+        toUserId: trade.toUserId,
+        offerCash: trade.offerCash,
+        requestCash: trade.requestCash,
+        offerTileIds: [...trade.offerTileIds],
+        requestTileIds: [...trade.requestTileIds],
+        expiresAt: trade.expiresAt,
+      })),
   };
 }
 

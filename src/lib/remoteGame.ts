@@ -19,6 +19,8 @@ export type RemoteSnapshotEnvelope = {
   ok: boolean
   game: RemoteGameMeta
   snapshot: JsonRecord
+  /** Current memberships are returned separately so lobby seats stay live. */
+  members?: unknown[]
   events?: unknown[]
 }
 
@@ -104,7 +106,12 @@ export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameSta
     if (ownerId) ownership.set(ownerId, [...(ownership.get(ownerId) ?? []), tileId])
   }
 
-  const players = asArray(snapshot.players).map((raw, index) => {
+  const memberRows = asArray(envelope.members)
+  const isLobby = envelope.game.status === 'lobby' || asString(snapshot.status) === 'lobby'
+  // A waiting-room snapshot is deliberately created before later members
+  // arrive. The membership projection is therefore authoritative for its HUD.
+  const playerRows = isLobby && memberRows.length > 0 ? memberRows : asArray(snapshot.players)
+  const players = playerRows.map((raw, index) => {
     const player = asRecord(raw)
     const id = asString(player.id, `seat-${index}`)
     const memberStatus = asString(player.memberStatus)
@@ -113,14 +120,15 @@ export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameSta
       id,
       name: asString(player.displayName, `Player ${index + 1}`),
       color: asString(player.avatarColor, '#63d4c4'),
-      cash: asNumber(player.cash),
+      cash: asNumber(player.cash, DEFAULT_RULES.startingCash),
       position: asNumber(player.position),
       status: bankrupt ? 'bankrupt' : memberStatus === 'left' ? 'left' : asBoolean(player.isDetained) ? 'detained' : 'active',
       detentionTurns: 0,
       detentionPasses: 0,
       doublesRolled: 0,
       propertyIds: ownership.get(id) ?? [],
-      joinedAt: index,
+      netWorth: typeof player.netWorth === 'number' && Number.isFinite(player.netWorth) ? player.netWorth : undefined,
+      joinedAt: asNumber(player.seat, index),
     } as PublicGameState['players'][number]
   })
 
@@ -142,6 +150,47 @@ export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameSta
     : null
   const lastRollRaw = asRecord(snapshot.lastRoll)
   const dice = asArray(lastRollRaw.dice)
+  const debtRaw = asRecord(snapshot.debt)
+  const debt = Object.keys(debtRaw).length
+    ? {
+        playerId: asString(debtRaw.playerId),
+        amount: asNumber(debtRaw.amount),
+        creditorPlayerId: null,
+        reason: asString(debtRaw.reason, 'City account due'),
+      }
+    : null
+  const tradeSummaries = new Map(asArray(snapshot.trades).map((raw) => {
+    const trade = asRecord(raw)
+    return [asString(trade.id), trade] as const
+  }))
+  // Full terms are intentionally projected only for trade participants by the
+  // snapshot function. Public `trades` stays summary-only for every seat.
+  const trades = asArray(snapshot.tradeDetails).flatMap((raw) => {
+    const trade = asRecord(raw)
+    const id = asString(trade.id)
+    const summary = tradeSummaries.get(id) ?? {}
+    const fromPlayerId = asString(trade.fromUserId ?? trade.fromPlayerId)
+    const toPlayerId = asString(trade.toUserId ?? trade.toPlayerId)
+    const offeredPropertyIds = asArray(trade.offerTileIds ?? trade.offeredPropertyIds).map(String)
+    const requestedPropertyIds = asArray(trade.requestTileIds ?? trade.requestedPropertyIds).map(String)
+    // Summary-only entries remain intentionally unreadable to the client; an
+    // authorized participant projection includes the terms below.
+    const hasTerms = Array.isArray(trade.offerTileIds) || Array.isArray(trade.offeredPropertyIds)
+    if (!hasTerms || !id || !fromPlayerId || !toPlayerId) return []
+    const createdAt = Date.parse(asString(trade.createdAt ?? trade.created_at ?? trade.expiresAt))
+    const status = asString(summary.status ?? trade.status, 'open')
+    return [{
+      id,
+      fromPlayerId,
+      toPlayerId,
+      offeredPropertyIds,
+      requestedPropertyIds,
+      offeredCash: asNumber(trade.offerCash ?? trade.offeredCash),
+      requestedCash: asNumber(trade.requestCash ?? trade.requestedCash),
+      status: status === 'accepted' ? 'accepted' as const : status === 'declined' ? 'declined' as const : status === 'cancelled' ? 'cancelled' as const : 'open' as const,
+      createdAt: Number.isNaN(createdAt) ? Date.now() : createdAt,
+    }]
+  })
 
   return {
     id: envelope.game.id,
@@ -157,8 +206,8 @@ export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameSta
     properties,
     pendingPurchase,
     auction,
-    debt: null,
-    trades: [],
+    debt,
+    trades,
     lastRoll: dice.length === 2 ? [asNumber(dice[0]), asNumber(dice[1])] : null,
     jackpot: asNumber(snapshot.jackpot),
     events: remoteEvents(envelope.events ?? []),
