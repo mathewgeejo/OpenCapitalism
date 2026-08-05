@@ -2,6 +2,7 @@ import { FormEvent, useState, type CSSProperties } from 'react'
 import { ArrowRight, KeyRound, Mail, Sparkles } from 'lucide-react'
 import { Brand } from './Brand'
 import { isSupabaseConfigured, requiredSupabaseMessage, supabase } from '../lib/supabase'
+import './AuthPanel.css'
 
 type AuthPanelProps = {
   onDemoStart: () => void
@@ -9,6 +10,32 @@ type AuthPanelProps = {
 }
 
 type Mode = 'sign-in' | 'sign-up'
+
+type BoardSpace = {
+  label: string
+  color: string
+  x: string
+  y: string
+  rotate: string
+  corner: boolean
+}
+
+const BOARD_SPACES: BoardSpace[] = [
+  { label: 'START', color: '#ff8a4c', x: '3%', y: '3%', rotate: '-5deg', corner: true },
+  { label: 'POP', color: '#ffd84d', x: '28%', y: '3%', rotate: '-1deg', corner: false },
+  { label: 'PARK', color: '#65d8af', x: '53%', y: '3%', rotate: '2deg', corner: false },
+  { label: 'WOW', color: '#7c74ff', x: '78%', y: '3%', rotate: '5deg', corner: true },
+  { label: 'SKY', color: '#ff70a6', x: '82%', y: '28%', rotate: '92deg', corner: false },
+  { label: 'GO!', color: '#67cdf6', x: '82%', y: '53%', rotate: '88deg', corner: false },
+  { label: 'BONUS', color: '#ffc64b', x: '82%', y: '78%', rotate: '85deg', corner: true },
+  { label: 'HOME', color: '#6de2b2', x: '57%', y: '82%', rotate: '-4deg', corner: false },
+  { label: 'CLUB', color: '#ff8db9', x: '32%', y: '82%', rotate: '2deg', corner: false },
+  { label: 'ROLL', color: '#8b83ff', x: '3%', y: '82%', rotate: '4deg', corner: true },
+  { label: 'LUCK', color: '#ffcc55', x: '3%', y: '57%', rotate: '-88deg', corner: false },
+  { label: 'ZIP', color: '#70d9f3', x: '3%', y: '32%', rotate: '-92deg', corner: false },
+]
+
+const PAWN_COLORS = ['#ff5c91', '#ffd34d', '#55d8aa'] as const
 
 export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
   const [mode, setMode] = useState<Mode>('sign-in')
@@ -80,39 +107,70 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
   }
 
   return (
-    <main className="auth-page">
-      <section className="auth-hero">
-        <Brand />
-        <p className="eyebrow">LIVE PROPERTY STRATEGY</p>
-        <h1>Make the city<br /><em>move for you.</em></h1>
-        <p className="auth-copy">
-          Build a skyline, negotiate smart, and outlast the table in a tactile real-time city game.
-        </p>
-        <div className="hero-stat-row" aria-label="Game features">
-          <span><strong>20</strong> live seats</span>
-          <span><strong>52</strong> city spaces</span>
-          <span><strong>1</strong> shared table</span>
+    <main className="auth-page play-login">
+      <section className="auth-hero play-login__hero">
+        <div className="play-login__confetti" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, index) => <i key={index} />)}
         </div>
-        <div className="auth-city" aria-hidden="true">
-          {Array.from({ length: 13 }, (_, index) => (
-            <i key={index} style={{ '--height': `${26 + ((index * 37) % 90)}%`, '--delay': `${index * 90}ms` } as CSSProperties} />
-          ))}
+        <Brand />
+        <p className="eyebrow play-login__eyebrow"><Sparkles size={15} /> A FRIENDLY CITY BOARD GAME</p>
+        <h1><span>Roll in.</span><em>Rule the block.</em></h1>
+        <p className="auth-copy play-login__copy">
+          Collect colorful streets, build tiny landmarks, and make every move count with your favorite people.
+        </p>
+        <div className="hero-stat-row play-login__steps" aria-label="How the game works">
+          <span><b>1</b> Pick a token</span>
+          <span><b>2</b> Build your block</span>
+          <span><b>3</b> Be legendary</span>
+        </div>
+        <div className="play-login__scene" aria-hidden="true">
+          <div className="play-login__card-stack"><i /><i /><i /></div>
+          <div className="play-login__board">
+            {BOARD_SPACES.map((space, index) => (
+              <span
+                className={`play-login__board-space${space.corner ? ' play-login__board-space--corner' : ''}`}
+                key={space.label}
+                style={{
+                  '--space-color': space.color,
+                  '--space-x': space.x,
+                  '--space-y': space.y,
+                  '--space-rotate': space.rotate,
+                  '--space-delay': `${index * 70}ms`,
+                } as CSSProperties}
+              >
+                {space.label}
+              </span>
+            ))}
+            <div className="play-login__board-core">
+              <span>+</span>
+              <strong>PLAY<br />TIME</strong>
+            </div>
+            <span className="play-login__building play-login__building--house play-login__building--one" />
+            <span className="play-login__building play-login__building--house play-login__building--two" />
+            <span className="play-login__building play-login__building--hotel">H</span>
+            {PAWN_COLORS.map((color, index) => (
+              <span className={`play-login__pawn play-login__pawn--${index + 1}`} key={color} style={{ '--pawn-color': color } as CSSProperties} />
+            ))}
+            <span className="play-login__dice"><i /><i /><i /></span>
+          </div>
         </div>
       </section>
 
-      <section className="auth-card-wrap">
-        <div className="auth-card">
+      <section className="auth-card-wrap play-login__card-wrap">
+        <div className="auth-card play-login__card">
+          <i className="play-login__card-corner play-login__card-corner--top" aria-hidden="true" />
+          <i className="play-login__card-corner play-login__card-corner--bottom" aria-hidden="true" />
           <div className="auth-card-heading">
-            <span className="status-pill"><Sparkles size={14} /> PRIVATE TABLES</span>
-            <h2>{mode === 'sign-in' ? 'Welcome back' : 'Claim your seat'}</h2>
-            <p>{mode === 'sign-in' ? 'Sign in to return to your city.' : 'Create an account to host and join rooms.'}</p>
+            <span className="status-pill"><Sparkles size={14} /> PLAYER LOBBY</span>
+            <h2>{mode === 'sign-in' ? 'Your turn is up!' : 'Claim a colorful seat'}</h2>
+            <p>{mode === 'sign-in' ? 'Jump back into your city and make the next big move.' : 'Join the table, name your token, and start a city story.'}</p>
           </div>
 
           <button className="google-button" type="button" onClick={signInWithGoogle} disabled={busy}>
             <span className="google-g">G</span>
             Continue with Google
           </button>
-          <div className="divider"><span>or continue with email</span></div>
+          <div className="divider"><span>or play with email</span></div>
 
           <form className="auth-form" onSubmit={submit}>
             {mode === 'sign-up' && (
@@ -133,7 +191,7 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
               <input value={password} type="password" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} minLength={8} placeholder="At least 8 characters" onChange={(event) => setPassword(event.target.value)} required />
             </label>
             <button className="primary-button" type="submit" disabled={busy}>
-              {busy ? 'Working…' : mode === 'sign-in' ? 'Enter the city' : 'Create account'}
+              {busy ? 'Shuffling the deck...' : mode === 'sign-in' ? "Let's play" : 'Start playing'}
               <ArrowRight size={18} />
             </button>
           </form>
@@ -150,8 +208,8 @@ export function AuthPanel({ onDemoStart, onNotice }: AuthPanelProps) {
 
           {!isSupabaseConfigured && (
             <div className="demo-callout">
-              <div><strong>Preview mode</strong><span>Supabase is not configured locally.</span></div>
-              <button type="button" onClick={onDemoStart}>Open live demo <ArrowRight size={15} /></button>
+              <div><strong>Try the game table</strong><span>Preview mode is ready to roll.</span></div>
+              <button type="button" onClick={onDemoStart}>Play the demo <ArrowRight size={15} /></button>
             </div>
           )}
         </div>

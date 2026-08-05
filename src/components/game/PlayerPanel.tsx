@@ -18,7 +18,7 @@ export function PlayerPanel({ game, selectedPlayerId, onSelect }: PlayerPanelPro
   return (
     <>
       <div className="sidebar-head">
-        <h2 className="sidebar-title">CITY COUNCIL</h2>
+        <h2 className="sidebar-title">PLAYER PARADE</h2>
         <span className="player-count">{game.players.length}/20 online</span>
       </div>
       <div className="player-list" aria-label="Players">
@@ -44,7 +44,7 @@ export function PlayerPanel({ game, selectedPlayerId, onSelect }: PlayerPanelPro
                 {initials(player.name)}
               </span>
               <span>
-                <span className="player-name">{player.name}{active ? ' / TURN' : ''}</span>
+                <span className="player-name">{player.name}{active ? ' (GO!)' : ''}</span>
                 <span className="player-meta">{statusLabel}</span>
               </span>
               <span className="player-balance" aria-label={`${player.name}: ${formatCredits(player.cash)} cash, ${formatCredits(netWorth)} net worth`}>

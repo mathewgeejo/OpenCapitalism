@@ -6,7 +6,7 @@ export function ActivityFeed({ game }: { game: GameViewState }) {
   return (
     <section className="activity" aria-label="Game activity">
       <div className="activity-header">
-        <h3>LIVE ACTIVITY</h3>
+        <h3>TABLE TALES</h3>
         <span>{game.events.length} events</span>
       </div>
       <div className="event-list" role="log" aria-live="polite">

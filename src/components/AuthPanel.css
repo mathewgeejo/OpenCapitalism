@@ -1,0 +1,849 @@
+/* The login is deliberately its own little game box.  Every selector is
+   scoped to .play-login so the live table can keep its separate art direction. */
+main.play-login {
+  --play-ink: #203458;
+  --play-purple: #6758ee;
+  --play-pink: #ff6394;
+  --play-yellow: #ffd54d;
+  --play-mint: #5bdab0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(25rem, .84fr);
+  min-height: 100svh;
+  overflow: hidden;
+  color: var(--play-ink);
+  background: #fff0b9;
+  isolation: isolate;
+}
+
+.play-login .auth-hero {
+  position: relative;
+  display: flex;
+  min-height: 100svh;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: clamp(8.5rem, 12vh, 10rem) clamp(2rem, 7vw, 6.8rem) clamp(17rem, 25vh, 20rem);
+  color: #fff;
+  background:
+    radial-gradient(circle at 87% 16%, rgba(255, 221, 82, .94) 0 3.8rem, transparent 3.9rem),
+    radial-gradient(circle at 14% 77%, rgba(255, 117, 165, .66), transparent 20rem),
+    linear-gradient(135deg, #5d5be7 0%, #7664ef 42%, #4d59d7 100%);
+}
+
+.play-login .auth-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background-image:
+    radial-gradient(rgba(255,255,255,.22) 1.35px, transparent 1.45px),
+    linear-gradient(45deg, rgba(255,255,255,.08) 25%, transparent 25% 75%, rgba(255,255,255,.08) 75%);
+  background-position: 0 0, 0 0;
+  background-size: 18px 18px, 40px 40px;
+  box-shadow: none;
+  opacity: .62;
+  pointer-events: none;
+}
+
+.play-login .auth-hero::after {
+  content: "";
+  position: absolute;
+  top: -13rem;
+  right: -12rem;
+  bottom: auto;
+  left: auto;
+  width: 34rem;
+  height: 34rem;
+  border-radius: 46% 54% 55% 45%;
+  background: rgba(113, 232, 198, .22);
+  box-shadow: none;
+  transform: rotate(24deg);
+  pointer-events: none;
+}
+
+.play-login .brand {
+  position: absolute;
+  z-index: 3;
+  top: clamp(1.45rem, 4vw, 3.4rem);
+  left: clamp(1.5rem, 5.4vw, 5.1rem);
+  color: #fff;
+}
+
+.play-login .brand-mark {
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: .39rem;
+  border: 2px solid #fff;
+  border-radius: 11px;
+  background: #ff6d9f;
+  box-shadow: 3px 3px 0 rgba(36, 41, 117, .34);
+}
+
+.play-login .brand-mark span {
+  background: #fff4bd;
+  box-shadow: none;
+}
+
+.play-login .brand strong {
+  font-size: 1.05rem;
+  font-weight: 950;
+  letter-spacing: .025em;
+}
+
+.play-login .brand small {
+  margin-top: .14rem;
+  color: rgba(255,255,255,.84);
+  font-size: .57rem;
+  font-weight: 900;
+  letter-spacing: .17em;
+}
+
+.play-login .eyebrow {
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  margin: 0 0 1rem;
+  padding: .47rem .75rem;
+  border: 2px solid rgba(255,255,255,.9);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(58, 56, 164, .27);
+  box-shadow: 3px 3px 0 rgba(52, 48, 143, .18);
+  font-size: .63rem;
+  font-weight: 950;
+  letter-spacing: .095em;
+}
+
+.play-login .auth-hero h1 {
+  z-index: 2;
+  max-width: 10ch;
+  margin: 0;
+  color: #fff;
+  font-family: ui-rounded, "Arial Rounded MT Bold", Inter, system-ui, sans-serif;
+  font-size: clamp(3.3rem, 6.6vw, 6.8rem);
+  font-weight: 950;
+  line-height: .86;
+  letter-spacing: -.075em;
+  text-shadow: 0 .1em 0 rgba(57, 45, 151, .24);
+}
+
+.play-login .auth-hero h1 span,
+.play-login .auth-hero h1 em {
+  display: block;
+}
+
+.play-login .auth-hero h1 em {
+  margin-top: .09em;
+  color: #ffe15a;
+  font-style: normal;
+  text-shadow: 0 .1em 0 rgba(108, 71, 136, .24);
+}
+
+.play-login .auth-copy {
+  z-index: 2;
+  max-width: 28rem;
+  margin: 1.5rem 0 0;
+  color: rgba(255,255,255,.91);
+  font-size: clamp(.91rem, 1.22vw, 1.05rem);
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.play-login .hero-stat-row {
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .58rem;
+  margin-top: 1.65rem;
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 850;
+}
+
+.play-login .hero-stat-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: .38rem;
+  padding: .34rem .55rem .34rem .35rem;
+  border: 1px solid rgba(255,255,255,.36);
+  border-radius: 999px;
+  background: rgba(54, 49, 155, .25);
+}
+
+.play-login .hero-stat-row b {
+  display: grid;
+  width: 1.32rem;
+  height: 1.32rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #594bb9;
+  background: #fff1a8;
+  font-size: .71rem;
+  font-weight: 950;
+}
+
+.play-login__scene {
+  position: absolute;
+  z-index: 1;
+  right: clamp(-5.5rem, -5vw, -1.7rem);
+  bottom: clamp(-4rem, -4vh, -1.7rem);
+  width: clamp(25rem, 37vw, 34rem);
+  aspect-ratio: 1;
+  pointer-events: none;
+  transform: rotate(-7deg);
+}
+
+.play-login__board {
+  position: absolute;
+  inset: 7%;
+  overflow: hidden;
+  border: clamp(7px, 1.2vw, 12px) solid #fff8d8;
+  border-radius: 2rem;
+  background:
+    linear-gradient(90deg, rgba(87, 215, 169, .13) 1px, transparent 1px),
+    linear-gradient(rgba(87, 215, 169, .13) 1px, transparent 1px),
+    #ecffe5;
+  background-size: 20px 20px;
+  box-shadow: 0 1.15rem 0 rgba(50, 41, 135, .23), 0 1.8rem 2.8rem rgba(44, 37, 121, .3);
+}
+
+.play-login__board::before {
+  content: "";
+  position: absolute;
+  inset: .32rem;
+  border: 2px dashed rgba(75, 125, 127, .25);
+  border-radius: 1.42rem;
+}
+
+.play-login__board-space {
+  position: absolute;
+  z-index: 2;
+  left: var(--space-x);
+  top: var(--space-y);
+  display: grid;
+  width: 17%;
+  height: 14%;
+  place-items: center;
+  padding: .15rem;
+  border: 2px solid rgba(37, 58, 84, .64);
+  border-radius: .55rem;
+  color: #253b57;
+  background: #fffdf1;
+  box-shadow: inset 0 .35rem 0 var(--space-color), 0 .22rem 0 rgba(41, 58, 84, .3);
+  font-size: clamp(.36rem, .75vw, .58rem);
+  font-weight: 950;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-align: center;
+  transform: rotate(var(--space-rotate));
+  animation: play-login-space-in .52s cubic-bezier(.24, 1.34, .45, 1) var(--space-delay) both;
+}
+
+.play-login__board-space--corner {
+  color: #fff;
+  background: var(--space-color);
+  box-shadow: 0 .24rem 0 rgba(41, 58, 84, .32);
+}
+
+.play-login__board-core {
+  position: absolute;
+  z-index: 1;
+  inset: 21%;
+  display: grid;
+  place-items: center;
+  border: 3px solid #3b5a6f;
+  border-radius: 34% 42% 38% 46%;
+  color: #fff;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,.45) 0 5px, transparent 6px),
+    linear-gradient(135deg, #54d9af, #4b98e9 48%, #7b6aeb);
+  box-shadow: inset 0 0 0 5px rgba(255,255,255,.24);
+  transform: rotate(8deg);
+}
+
+.play-login__board-core span {
+  position: absolute;
+  top: 11%;
+  color: #ffe45a;
+  font-size: clamp(1rem, 2vw, 1.75rem);
+  font-weight: 950;
+}
+
+.play-login__board-core strong {
+  font-family: ui-rounded, "Arial Rounded MT Bold", Inter, system-ui, sans-serif;
+  font-size: clamp(.7rem, 1.4vw, 1.08rem);
+  font-weight: 950;
+  letter-spacing: .045em;
+  line-height: .82;
+  text-align: center;
+  text-shadow: 0 2px 0 rgba(49, 73, 153, .4);
+}
+
+.play-login__building {
+  position: absolute;
+  z-index: 4;
+  display: block;
+  background: #ff8db4;
+  filter: drop-shadow(0 .16rem 0 rgba(36, 58, 84, .26));
+  transform-origin: bottom;
+  animation: play-login-building-bounce 1.85s ease-in-out infinite;
+}
+
+.play-login__building::before {
+  content: "";
+  position: absolute;
+  left: -15%;
+  top: -40%;
+  width: 130%;
+  height: 54%;
+  background: #ffca57;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.play-login__building::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 37%;
+  width: 27%;
+  height: 45%;
+  border-radius: 2px 2px 0 0;
+  background: #31516e;
+}
+
+.play-login__building--house {
+  width: 10%;
+  height: 9%;
+  border: 2px solid #34516e;
+  border-radius: 3px 3px 1px 1px;
+}
+
+.play-login__building--one {
+  right: 26%;
+  bottom: 25%;
+  background: #ff789f;
+  animation-delay: -.3s;
+}
+
+.play-login__building--two {
+  right: 14%;
+  bottom: 24%;
+  background: #65d9b0;
+  animation-delay: -.9s;
+}
+
+.play-login__building--hotel {
+  right: 13%;
+  bottom: 41%;
+  display: grid;
+  width: 13%;
+  height: 15%;
+  place-items: center;
+  border: 2px solid #34516e;
+  border-radius: 5px 5px 1px 1px;
+  color: #fff;
+  background: #7765ef;
+  font-size: clamp(.48rem, 1vw, .8rem);
+  font-style: normal;
+  font-weight: 950;
+  animation-delay: -.55s;
+}
+
+.play-login__building--hotel::before {
+  left: 5%;
+  top: -22%;
+  width: 90%;
+  height: 29%;
+  background: #ffdf57;
+  clip-path: polygon(10% 0, 90% 0, 100% 100%, 0 100%);
+}
+
+.play-login__building--hotel::after {
+  bottom: 8%;
+  left: 14%;
+  width: 20%;
+  height: 16%;
+  border-radius: 1px;
+  background: #a6e7ff;
+  box-shadow: .42rem 0 0 #a6e7ff, 0 -.38rem 0 #a6e7ff, .42rem -.38rem 0 #a6e7ff;
+}
+
+.play-login__pawn {
+  position: absolute;
+  z-index: 5;
+  display: block;
+  width: 7.4%;
+  height: 10.4%;
+  border: 2px solid rgba(35, 54, 82, .74);
+  border-radius: 48% 48% 43% 43% / 36% 36% 62% 62%;
+  background: var(--pawn-color);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.27), 0 .23rem 0 rgba(37, 58, 84, .28);
+  animation: play-login-pawn-bob 1.7s ease-in-out infinite;
+}
+
+.play-login__pawn::before {
+  content: "";
+  position: absolute;
+  top: -47%;
+  left: 16%;
+  width: 68%;
+  aspect-ratio: 1;
+  border: 2px solid rgba(35, 54, 82, .74);
+  border-radius: 50%;
+  background: var(--pawn-color);
+}
+
+.play-login__pawn::after {
+  content: "";
+  position: absolute;
+  right: 18%;
+  bottom: 18%;
+  width: 16%;
+  height: 18%;
+  border-radius: 50%;
+  background: rgba(255,255,255,.82);
+}
+
+.play-login__pawn--1 { left: 32%; bottom: 29%; animation-delay: -.2s; }
+.play-login__pawn--2 { left: 42%; bottom: 24%; animation-delay: -.8s; }
+.play-login__pawn--3 { left: 52%; bottom: 30%; animation-delay: -1.3s; }
+
+.play-login__dice {
+  position: absolute;
+  z-index: 6;
+  right: 26%;
+  top: 25%;
+  display: block;
+  width: 13%;
+  aspect-ratio: 1;
+  border: 2px solid #36536d;
+  border-radius: .42rem;
+  background: #fffdf4;
+  box-shadow: .19rem .23rem 0 rgba(37, 58, 84, .28);
+  transform: rotate(13deg);
+  animation: play-login-dice-wiggle 2.6s ease-in-out infinite;
+}
+
+.play-login__dice i {
+  position: absolute;
+  width: 17%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ff6697;
+}
+
+.play-login__dice i:nth-child(1) { top: 20%; left: 20%; }
+.play-login__dice i:nth-child(2) { top: 41.5%; left: 41.5%; }
+.play-login__dice i:nth-child(3) { right: 20%; bottom: 20%; }
+
+.play-login__card-stack {
+  position: absolute;
+  z-index: 0;
+  left: 1%;
+  bottom: 16%;
+  width: 25%;
+  aspect-ratio: .7;
+}
+
+.play-login__card-stack i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border: 3px solid #fff9da;
+  border-radius: .8rem;
+  background: #ff739f;
+  box-shadow: 0 .4rem 0 rgba(45, 38, 124, .23);
+}
+
+.play-login__card-stack i::after {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff5a3;
+  font-family: ui-rounded, "Arial Rounded MT Bold", sans-serif;
+  font-size: 2rem;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.play-login__card-stack i:nth-child(1) { transform: rotate(-18deg) translate(-14%, 9%); background: #65d8b1; }
+.play-login__card-stack i:nth-child(2) { transform: rotate(-5deg) translate(-3%, 3%); background: #ffd354; }
+.play-login__card-stack i:nth-child(3) { transform: rotate(9deg); }
+
+.play-login__confetti {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+}
+
+.play-login__confetti i {
+  position: absolute;
+  display: block;
+  width: .65rem;
+  height: 1.15rem;
+  border-radius: 99px;
+  background: #ffe05b;
+  animation: play-login-confetti 4.6s ease-in-out infinite;
+}
+
+.play-login__confetti i:nth-child(1) { top: 13%; left: 46%; background: #ff759d; transform: rotate(34deg); animation-delay: -.2s; }
+.play-login__confetti i:nth-child(2) { top: 24%; right: 8%; width: 1.1rem; height: .58rem; background: #65dbaf; transform: rotate(-18deg); animation-delay: -1.4s; }
+.play-login__confetti i:nth-child(3) { top: 46%; left: 8%; width: .58rem; height: .58rem; border-radius: 50%; background: #ffe05b; animation-delay: -2.2s; }
+.play-login__confetti i:nth-child(4) { top: 68%; left: 42%; background: #60d8f0; transform: rotate(48deg); animation-delay: -.6s; }
+.play-login__confetti i:nth-child(5) { top: 52%; right: 4%; background: #ff80ae; transform: rotate(65deg); animation-delay: -3.1s; }
+.play-login__confetti i:nth-child(6) { top: 8%; right: 33%; width: .55rem; height: .55rem; border-radius: 50%; background: #7ee4ba; animation-delay: -1.1s; }
+.play-login__confetti i:nth-child(7) { top: 75%; left: 17%; width: .5rem; height: .9rem; background: #ffd854; transform: rotate(22deg); animation-delay: -2.7s; }
+.play-login__confetti i:nth-child(8) { top: 35%; left: 67%; width: .48rem; height: .48rem; border-radius: 50%; background: #ff8ab4; animation-delay: -1.8s; }
+.play-login__confetti i:nth-child(9) { top: 85%; right: 31%; width: 1rem; height: .5rem; background: #61d9f0; transform: rotate(-30deg); animation-delay: -3.8s; }
+.play-login__confetti i:nth-child(10) { top: 19%; left: 23%; width: .5rem; height: 1rem; background: #83e4bc; transform: rotate(20deg); animation-delay: -2.9s; }
+
+.play-login .auth-card-wrap {
+  position: relative;
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: clamp(2rem, 6vw, 5.5rem);
+  background:
+    radial-gradient(circle at 89% 8%, #ff82ae 0 .47rem, transparent .52rem),
+    radial-gradient(circle at 90% 8%, transparent 0 2rem, rgba(255, 130, 174, .25) 2.05rem 2.14rem, transparent 2.2rem),
+    radial-gradient(circle at 10% 89%, #59d9b0 0 .42rem, transparent .47rem),
+    linear-gradient(135deg, #fff5c9, #ffe5a6);
+}
+
+.play-login .auth-card {
+  position: relative;
+  width: min(100%, 30rem);
+  padding: clamp(1.8rem, 4.5vw, 3rem);
+  overflow: hidden;
+  border: 3px solid #2b4966;
+  border-radius: 1.6rem;
+  color: var(--play-ink);
+  background:
+    linear-gradient(rgba(255,255,255,.74) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.74) 1px, transparent 1px),
+    #fffdf3;
+  background-size: 13px 13px, 13px 13px, auto;
+  box-shadow: .65rem .65rem 0 #ff7eab, 0 1.1rem 2.8rem rgba(99, 66, 110, .22);
+}
+
+.play-login .auth-card-heading,
+.play-login .google-button,
+.play-login .divider,
+.play-login .auth-form,
+.play-login .auth-actions,
+.play-login .demo-callout {
+  position: relative;
+  z-index: 1;
+}
+
+.play-login__card-corner {
+  position: absolute;
+  z-index: 0;
+  display: block;
+  width: 8.5rem;
+  height: 8.5rem;
+  border-radius: 50%;
+  background: #c6f2da;
+  opacity: .57;
+}
+
+.play-login__card-corner--top { top: -5.5rem; right: -4.7rem; }
+.play-login__card-corner--bottom { bottom: -6.2rem; left: -5.2rem; background: #ffdf65; }
+
+.play-login .status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .37rem;
+  padding: .38rem .62rem;
+  border: 2px solid #3f58a4;
+  border-radius: 999px;
+  color: #4257a0;
+  background: #e5e6ff;
+  box-shadow: 2px 2px 0 rgba(63, 88, 164, .2);
+  font-size: .62rem;
+  font-weight: 950;
+  letter-spacing: .1em;
+}
+
+.play-login .auth-card h2 {
+  max-width: 10ch;
+  margin: 1.15rem 0 .55rem;
+  color: #243a5b;
+  font-family: ui-rounded, "Arial Rounded MT Bold", Inter, system-ui, sans-serif;
+  font-size: clamp(2rem, 4vw, 2.65rem);
+  font-weight: 950;
+  letter-spacing: -.06em;
+  line-height: .93;
+}
+
+.play-login .auth-card-heading p {
+  max-width: 25rem;
+  margin: 0;
+  color: #617188;
+  font-size: .88rem;
+  font-weight: 650;
+  line-height: 1.48;
+}
+
+.play-login .google-button,
+.play-login .primary-button {
+  min-height: 3.15rem;
+  border-radius: .82rem;
+  font-weight: 900;
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+
+.play-login .google-button {
+  margin-top: 1.5rem;
+  border: 2px solid #b9c6d3;
+  color: #304966;
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 .22rem 0 rgba(77, 105, 128, .18);
+}
+
+.play-login .google-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #7d91a6;
+  background: #fff;
+  box-shadow: 0 .35rem 0 rgba(77, 105, 128, .18);
+}
+
+.play-login .google-g {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid #d9e0e6;
+  color: #4d8bf5;
+  background: #fff;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.play-login .divider {
+  gap: .65rem;
+  margin: 1.15rem 0;
+  color: #7b899b;
+  font-size: .65rem;
+  font-weight: 800;
+}
+
+.play-login .divider::before,
+.play-login .divider::after {
+  height: 2px;
+  background: #e2e8eb;
+}
+
+.play-login .auth-form {
+  gap: .82rem;
+}
+
+.play-login .auth-form label {
+  gap: .34rem;
+  color: #3b536d;
+  font-size: .69rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.play-login .auth-form input {
+  min-height: 3.1rem;
+  border: 2px solid #cbd7dc;
+  border-radius: .78rem;
+  color: #29415f;
+  background: rgba(255,255,255,.87);
+  box-shadow: inset 0 -2px 0 rgba(85, 115, 137, .05);
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.play-login .auth-form input::placeholder {
+  color: #a2afba;
+  font-weight: 600;
+}
+
+.play-login .auth-form input:focus {
+  border-color: #8b79f3;
+  box-shadow: 0 0 0 4px rgba(139, 121, 243, .15), inset 0 -2px 0 rgba(85, 115, 137, .05);
+}
+
+.play-login .field-icon {
+  bottom: .93rem;
+  color: #7367d7;
+}
+
+.play-login .primary-button {
+  position: relative;
+  margin-top: .2rem;
+  overflow: hidden;
+  border: 2px solid #4151b5;
+  color: #fff;
+  background: linear-gradient(135deg, #7666ef, #5465db);
+  box-shadow: 0 .32rem 0 #3e4eaa, 0 .7rem 1.1rem rgba(77, 91, 209, .23);
+}
+
+.play-login .primary-button::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -20%;
+  width: 48%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.2));
+  transform: skewX(-24deg);
+}
+
+.play-login .primary-button:hover:not(:disabled) {
+  filter: saturate(1.08) brightness(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 .46rem 0 #3e4eaa, 0 .94rem 1.35rem rgba(77, 91, 209, .28);
+}
+
+.play-login .primary-button:active:not(:disabled) {
+  transform: translateY(.22rem);
+  box-shadow: 0 .1rem 0 #3e4eaa, 0 .28rem .72rem rgba(77, 91, 209, .22);
+}
+
+.play-login .auth-actions {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: .8rem;
+  margin-top: 1.2rem;
+}
+
+.play-login .auth-actions-right {
+  width: 100%;
+  justify-content: space-between;
+  gap: .6rem .8rem;
+}
+
+.play-login .auth-actions button {
+  color: #536dc1;
+  font-size: .68rem;
+  font-weight: 850;
+  text-decoration: underline;
+  text-decoration-color: rgba(83, 109, 193, .25);
+  text-underline-offset: .17rem;
+}
+
+.play-login .auth-actions button:hover:not(:disabled) {
+  color: #ef588b;
+  text-decoration-color: currentColor;
+}
+
+.play-login .demo-callout {
+  align-items: center;
+  margin-top: 1.6rem;
+  padding: .76rem .82rem;
+  border: 2px dashed #e89b41;
+  border-radius: .9rem;
+  background: #fff2cd;
+}
+
+.play-login .demo-callout strong {
+  color: #a45a27;
+  font-size: .72rem;
+  font-weight: 950;
+}
+
+.play-login .demo-callout span {
+  color: #997758;
+  font-size: .62rem;
+  font-weight: 650;
+}
+
+.play-login .demo-callout button {
+  gap: .3rem;
+  color: #e04f81;
+  font-size: .69rem;
+  font-weight: 950;
+}
+
+.play-login .demo-callout button:hover {
+  color: #bd3f6a;
+}
+
+@keyframes play-login-space-in {
+  from { opacity: 0; transform: rotate(var(--space-rotate)) scale(.35) translateY(-1.4rem); }
+  68% { opacity: 1; transform: rotate(var(--space-rotate)) scale(1.12) translateY(.08rem); }
+  to { opacity: 1; transform: rotate(var(--space-rotate)) scale(1); }
+}
+
+@keyframes play-login-building-bounce {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  46% { transform: translateY(-.28rem) scaleY(1.04); }
+  65% { transform: translateY(0) scaleY(.92); }
+}
+
+@keyframes play-login-pawn-bob {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-.44rem) rotate(4deg); }
+}
+
+@keyframes play-login-dice-wiggle {
+  0%, 72%, 100% { transform: rotate(13deg) translateY(0); }
+  80% { transform: rotate(-9deg) translateY(-.34rem); }
+  89% { transform: rotate(24deg) translateY(.05rem); }
+}
+
+@keyframes play-login-confetti {
+  0%, 100% { translate: 0 0; opacity: .65; }
+  50% { translate: .4rem -.7rem; opacity: 1; }
+}
+
+@media (max-width: 980px) {
+  main.play-login { grid-template-columns: 1fr; }
+
+  .play-login .auth-hero {
+    min-height: 42rem;
+    padding: 8.4rem clamp(1.6rem, 8vw, 5rem) 16.5rem;
+  }
+
+  .play-login__scene {
+    right: clamp(-3.8rem, -2vw, -1rem);
+    bottom: -4.6rem;
+    width: min(35rem, 65vw);
+  }
+
+  .play-login .auth-card-wrap { min-height: auto; padding: 3.75rem 1.5rem 4.25rem; }
+}
+
+@media (max-width: 620px) {
+  .play-login .auth-hero {
+    min-height: 39rem;
+    padding: 7.3rem 1.35rem 17.5rem;
+  }
+
+  .play-login .brand { top: 1.35rem; left: 1.35rem; }
+  .play-login .brand strong { font-size: .98rem; }
+  .play-login .eyebrow { margin-bottom: .9rem; font-size: .56rem; }
+  .play-login .auth-hero h1 { font-size: clamp(3.05rem, 14vw, 4.65rem); }
+  .play-login .auth-copy { max-width: 22rem; margin-top: 1.15rem; font-size: .88rem; }
+  .play-login .hero-stat-row { gap: .38rem; margin-top: 1.25rem; }
+  .play-login .hero-stat-row span { padding-right: .46rem; font-size: .62rem; }
+  .play-login .hero-stat-row b { width: 1.17rem; height: 1.17rem; font-size: .64rem; }
+
+  .play-login__scene {
+    right: -4.6rem;
+    bottom: -3.6rem;
+    width: 28rem;
+  }
+
+  .play-login .auth-card-wrap { padding: 2.9rem 1rem 3.35rem; }
+  .play-login .auth-card { padding: 1.6rem 1.25rem; border-radius: 1.32rem; box-shadow: .42rem .42rem 0 #ff7eab, 0 1rem 2rem rgba(99, 66, 110, .18); }
+  .play-login .auth-card h2 { font-size: 2.05rem; }
+  .play-login .auth-actions-right { justify-content: flex-start; }
+  .play-login .demo-callout { align-items: flex-start; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-login *, .play-login *::before, .play-login *::after {
+    animation: none !important;
+    transition-duration: .001ms !important;
+  }
+}

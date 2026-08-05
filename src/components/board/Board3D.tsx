@@ -2,6 +2,7 @@ import { OrbitControls, RoundedBox, Text } from '@react-three/drei';
 import { Canvas, type ThreeEvent, useFrame } from '@react-three/fiber';
 import {
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -99,24 +100,24 @@ const PLAYER_COLORS = [
 ];
 
 const SPACE_COLORS: Record<string, string> = {
-  district: '#334155',
-  property: '#334155',
-  parcel: '#334155',
-  transit: '#0f766e',
-  route: '#0f766e',
-  works: '#2563eb',
-  utility: '#2563eb',
-  event: '#7c3aed',
-  civic: '#ea580c',
-  levy: '#be123c',
-  tax: '#be123c',
-  corner: '#0369a1',
-  start: '#0369a1',
-  detention: '#7f1d1d',
-  festival: '#15803d',
-  rest: '#15803d',
-  jackpot: '#b45309',
-  gotodetention: '#7f1d1d',
+  district: '#60c7d9',
+  property: '#60c7d9',
+  parcel: '#60c7d9',
+  transit: '#4cbcae',
+  route: '#4cbcae',
+  works: '#59a8e7',
+  utility: '#59a8e7',
+  event: '#ef7098',
+  civic: '#8d79ea',
+  levy: '#f19055',
+  tax: '#f19055',
+  corner: '#55c884',
+  start: '#55c884',
+  detention: '#7c8da4',
+  festival: '#f5c955',
+  rest: '#f5c955',
+  jackpot: '#f5a54e',
+  gotodetention: '#7c8da4',
 };
 
 const CITY_BLOCKS = [
@@ -372,6 +373,49 @@ function spaceGlyph(space: VisualSpace): string {
   if (space.kind === 'start') return '+';
   if (space.kind === 'detention' || space.kind === 'gotodetention') return '!';
   return '*';
+}
+
+function tableSpaceIcon(space: VisualSpace): string {
+  if (space.kind === 'district' || space.kind === 'property' || space.kind === 'parcel') return '⌂';
+  if (space.kind === 'event') return '?';
+  if (space.kind === 'civic') return '✦';
+  if (space.kind === 'transit' || space.kind === 'route') return '➜';
+  if (space.kind === 'utility' || space.kind === 'works') return '⚡';
+  if (space.kind === 'levy' || space.kind === 'tax') return '¢';
+  if (space.kind === 'start') return 'GO';
+  if (space.kind === 'detention' || space.kind === 'gotodetention') return '!';
+  if (space.kind === 'festival' || space.kind === 'rest') return '☀';
+  return '✦';
+}
+
+function TableBuildings({ count }: { count: number }) {
+  if (count <= 0) return null;
+  if (count >= 5) {
+    return (
+      <span className="board-tile__buildings board-tile__buildings--hotel" aria-label="Hotel">
+        <span className="board-hotel"><i /><i /><i /></span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="board-tile__buildings" aria-label={`${count} ${count === 1 ? 'house' : 'houses'}`}>
+      {Array.from({ length: count }, (_, index) => <span className="board-house" key={index}><i /></span>)}
+    </span>
+  );
+}
+
+function TablePawn({ player, active }: { player: VisualPlayer; active: boolean }) {
+  return (
+    <span
+      className={`board-pawn${active ? ' board-pawn--active' : ''}`}
+      style={{ '--pawn-color': player.color } as CSSProperties}
+      title={player.name}
+    >
+      <i className="board-pawn__head" />
+      <i className="board-pawn__body" />
+    </span>
+  );
 }
 
 const InstancedBoxes = memo(function InstancedBoxes({
@@ -641,10 +685,10 @@ const BoardTile = memo(function BoardTile({
           document.body.style.cursor = 'default';
         }}
       >
-        <meshStandardMaterial color="#14233a" roughness={0.38} metalness={0.28} />
+        <meshStandardMaterial color="#42738a" roughness={0.38} metalness={0.2} />
       </RoundedBox>
       <RoundedBox args={[layout.width * 0.91, 0.055, layout.depth * 0.88]} position={[0, 0.14, 0]} radius={0.045} smoothness={3}>
-        <meshStandardMaterial color={faceColor} roughness={0.52} metalness={special ? 0.15 : 0.04} />
+        <meshStandardMaterial color={faceColor} roughness={0.52} metalness={special ? 0.1 : 0.04} />
       </RoundedBox>
 
       <mesh position={[0, 0.181, layout.depth * 0.29]}>
@@ -726,24 +770,24 @@ const MiniatureCity = memo(function MiniatureCity({ shadows }: { shadows: boolea
   return (
     <group>
       <RoundedBox args={[22.35, 0.48, 22.35]} radius={0.3} smoothness={5} position={[0, -0.22, 0]} receiveShadow>
-        <meshStandardMaterial color="#101d31" roughness={0.42} metalness={0.35} />
+        <meshStandardMaterial color="#3f7188" roughness={0.42} metalness={0.2} />
       </RoundedBox>
       <RoundedBox args={[21.82, 0.1, 21.82]} radius={0.22} smoothness={4} position={[0, 0.01, 0]} receiveShadow>
-        <meshStandardMaterial color="#1a4050" roughness={0.66} metalness={0.12} />
+        <meshStandardMaterial color="#7ccfcf" roughness={0.66} metalness={0.08} />
       </RoundedBox>
       <InstancedBoxes items={FRAME_RAILS} roughness={0.25} metalness={0.55} shadows={shadows} />
 
       <mesh position={[0, 0.075, 0]} receiveShadow>
         <planeGeometry args={[11.55, 11.55]} />
-        <meshStandardMaterial color="#23465a" roughness={0.86} metalness={0.04} />
+        <meshStandardMaterial color="#a5e5c9" roughness={0.86} metalness={0.04} />
       </mesh>
       <mesh position={[0, 0.081, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 4]}>
         <planeGeometry args={[6.3, 6.3]} />
-        <meshStandardMaterial color="#1f5e70" roughness={0.68} metalness={0.08} />
+        <meshStandardMaterial color="#7bd5e6" roughness={0.68} metalness={0.08} />
       </mesh>
       <mesh position={[0, 0.085, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[4.1, 4.18, 64]} />
-        <meshStandardMaterial color="#d7ad4a" roughness={0.32} metalness={0.48} />
+        <meshStandardMaterial color="#f5cf61" roughness={0.32} metalness={0.32} />
       </mesh>
 
       <InstancedBoxes items={CITY_ROADS} roughness={0.78} metalness={0.04} shadows={shadows} />
@@ -770,20 +814,20 @@ const MiniatureCity = memo(function MiniatureCity({ shadows }: { shadows: boolea
       <Text
         position={[0, 0.12, -0.05]}
         rotation={[-Math.PI / 2, 0, 0]}
-        color="#f4e7b0"
+        color="#fff9da"
         fontSize={0.64}
         anchorX="center"
         anchorY="middle"
         letterSpacing={0.13}
         outlineWidth={0.012}
-        outlineColor="#143244"
+        outlineColor="#356d7e"
       >
         CIVIC FORTUNE
       </Text>
       <Text
         position={[0, 0.125, -0.57]}
         rotation={[-Math.PI / 2, 0, 0]}
-        color="#c4dbe6"
+        color="#335e76"
         fontSize={0.15}
         anchorX="center"
         anchorY="middle"
@@ -827,9 +871,9 @@ function BoardScene({
 
   return (
     <>
-      <color attach="background" args={['#06101b']} />
-      <fog attach="fog" args={['#06101b', 24, 47]} />
-      <hemisphereLight args={['#d8eef9', '#06111f', 1.4]} />
+      <color attach="background" args={['#69cfe0']} />
+      <fog attach="fog" args={['#69cfe0', 24, 47]} />
+      <hemisphereLight args={['#fff9d7', '#357a91', 1.6]} />
       <directionalLight
         position={[8.5, 15, 6]}
         intensity={2.5}
@@ -843,13 +887,13 @@ function BoardScene({
         shadow-camera-bottom={-16}
         shadow-bias={-0.00015}
       />
-      <pointLight position={[-9, 5.5, -6]} color="#38bdf8" intensity={17} distance={20} decay={2} />
-      <pointLight position={[8, 5, 8]} color="#f6bf58" intensity={12} distance={17} decay={2} />
-      <pointLight position={[0, 7, -9]} color="#8b5cf6" intensity={6} distance={14} decay={2} />
+      <pointLight position={[-9, 5.5, -6]} color="#58c8e7" intensity={17} distance={20} decay={2} />
+      <pointLight position={[8, 5, 8]} color="#ffd05c" intensity={12} distance={17} decay={2} />
+      <pointLight position={[0, 7, -9]} color="#ef78ae" intensity={6} distance={14} decay={2} />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.48, 0]} receiveShadow>
         <planeGeometry args={[48, 48]} />
-        <meshStandardMaterial color="#040b14" roughness={0.98} />
+        <meshStandardMaterial color="#4693aa" roughness={0.98} />
       </mesh>
 
       <MiniatureCity shadows={shadows} />
@@ -912,7 +956,8 @@ function BoardTable({
   selectedSpaceId,
   activeId,
   onSelectSpace,
-}: Omit<Parameters<typeof BoardScene>[0], 'reducedMotion' | 'shadows'>) {
+  reducedMotion,
+}: Omit<Parameters<typeof BoardScene>[0], 'reducedMotion' | 'shadows'> & { reducedMotion: boolean }) {
   const playerById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const tokensByIndex = useMemo(() => {
     const map = new Map<number, VisualPlayer[]>();
@@ -926,39 +971,24 @@ function BoardTable({
   return (
     <div
       aria-label="Civic Fortune board in table view"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(14, minmax(0, 1fr))',
-        gridTemplateRows: 'repeat(14, minmax(0, 1fr))',
-        gap: 2,
-        width: '100%',
-        minHeight: 480,
-        padding: 10,
-        borderRadius: 18,
-        boxSizing: 'border-box',
-        background: 'linear-gradient(145deg, #16334a, #07101f)',
-        boxShadow: 'inset 0 0 0 1px rgba(231,195,106,0.28), 0 22px 60px rgba(2, 6, 23, 0.45)',
-      }}
+      className={`play-board${reducedMotion ? ' play-board--reduced-motion' : ''}`}
     >
       <div
         aria-hidden="true"
-        style={{
-          gridColumn: '2 / 14',
-          gridRow: '2 / 14',
-          display: 'grid',
-          placeItems: 'center',
-          borderRadius: 12,
-          background: 'radial-gradient(circle at 50% 45%, #1f7b90 0%, #1a4050 32%, #0d2036 75%)',
-          color: '#f4e7b0',
-          fontSize: 'clamp(0.9rem, 2vw, 1.7rem)',
-          fontWeight: 800,
-          letterSpacing: '0.16em',
-          textAlign: 'center',
-          pointerEvents: 'none',
-          boxShadow: 'inset 0 0 0 1px rgba(231,195,106,0.28)',
-        }}
+        className="play-board__center"
       >
-        CIVIC FORTUNE
+        <span className="play-board__sun" />
+        <span className="play-board__cloud play-board__cloud--one" />
+        <span className="play-board__cloud play-board__cloud--two" />
+        <span className="play-board__road" />
+        <span className="play-board__park play-board__park--one" />
+        <span className="play-board__park play-board__park--two" />
+        <span className="play-board__fountain"><i /><i /><i /></span>
+        <div className="play-board__title">
+          <span>ROLL · TRADE · BUILD</span>
+          <strong>CIVIC<br /><b>FORTUNE</b></strong>
+          <small>THE FRIENDLIEST CITY ON THE BOARD</small>
+        </div>
       </div>
       {spaces.map((space) => {
         const property = properties.get(space.id) ?? properties.get(String(space.index));
@@ -966,6 +996,7 @@ function BoardTable({
         const tokens = tokensByIndex.get(normaliseIndex(space.index)) ?? [];
         const placement = tablePlacement(space.index);
         const selected = space.id === selectedSpaceId;
+        const special = placement.gridColumn === 1 || placement.gridColumn === 14 || placement.gridRow === 1 || placement.gridRow === 14;
         return (
           <button
             key={space.id}
@@ -973,30 +1004,22 @@ function BoardTable({
             onClick={() => onSelectSpace(space.id)}
             aria-pressed={selected}
             aria-label={`${space.label}${owner ? `, owned by ${owner.name}` : ''}${tokens.length ? `, ${tokens.length} player token${tokens.length === 1 ? '' : 's'}` : ''}`}
+            className={`board-tile board-tile--${space.kind}${special ? ' board-tile--edge' : ''}${selected ? ' board-tile--selected' : ''}${owner ? ' board-tile--owned' : ''}`}
             style={{
               gridColumn: placement.gridColumn,
               gridRow: placement.gridRow,
-              minWidth: 0,
-              minHeight: 0,
-              padding: 2,
-              overflow: 'hidden',
-              border: selected ? '2px solid #f4d66f' : '1px solid rgba(255,255,255,0.18)',
-              borderRadius: 5,
-              color: '#f8fafc',
-              background: tileColor(space),
-              fontSize: 'clamp(0.36rem, 0.66vw, 0.67rem)',
-              lineHeight: 1.05,
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: owner ? `inset 0 -4px 0 ${owner.color}` : 'inset 0 -3px 0 rgba(255,255,255,0.11)',
-            }}
+              '--tile-color': tileColor(space),
+              '--owner-color': owner?.color ?? 'transparent',
+            } as CSSProperties}
           >
-            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{space.label}</span>
-            {property && property.buildings > 0 && <span aria-hidden="true" style={{ color: '#fef08a' }}>{property.buildings >= 5 ? 'T' : '+'.repeat(property.buildings)}</span>}
-            <span aria-hidden="true" style={{ display: 'flex', justifyContent: 'center', gap: 1, marginTop: 1 }}>
-              {tokens.slice(0, 4).map((player) => (
-                <i key={player.id} style={{ width: 5, height: 5, borderRadius: 99, display: 'block', background: player.color, boxShadow: player.id === activeId ? '0 0 0 1px #fef08a' : undefined }} />
-              ))}
+            <span className="board-tile__stripe" />
+            <span className="board-tile__icon" aria-hidden="true">{tableSpaceIcon(space)}</span>
+            <span className="board-tile__name">{space.label}</span>
+            <span className="board-tile__caption">{spaceCaption(space)}</span>
+            {owner && <span className="board-tile__owner" aria-label={`Owned by ${owner.name}`} />}
+            <TableBuildings count={property?.buildings ?? 0} />
+            <span className="board-tile__pawns" aria-hidden="true">
+              {tokens.slice(0, 4).map((player) => <TablePawn key={player.id} player={player} active={player.id === activeId} />)}
             </span>
           </button>
         );
@@ -1013,7 +1036,7 @@ export const Board3D = memo(function Board3D({
   game,
   selectedSpaceId: selectedSpaceIdProp,
   onSelectSpace,
-  view = '3d',
+  view = 'table',
   reducedMotion = false,
   shadows = true,
   style,
@@ -1023,6 +1046,15 @@ export const Board3D = memo(function Board3D({
   const players = useMemo(() => normalisePlayers(game), [game]);
   const properties = useMemo(() => normaliseProperties(game, players), [game, players]);
   const activeId = useMemo(() => activePlayerId(game), [game]);
+  const hasWebgl = useMemo(() => {
+    if (typeof document === 'undefined') return false;
+    try {
+      const canvas = document.createElement('canvas');
+      return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'));
+    } catch {
+      return false;
+    }
+  }, []);
   const selectedSpaceId = selectedSpaceIdProp === undefined ? localSelectedSpaceId : selectedSpaceIdProp;
 
   const selectSpace = useCallback((spaceId: string) => {
@@ -1032,9 +1064,11 @@ export const Board3D = memo(function Board3D({
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId);
 
-  if (view === 'table') {
+  // A full board is more useful than an empty canvas. WebGL is an enhancement,
+  // so unsupported devices automatically stay on the illustrated table.
+  if (view === 'table' || !hasWebgl) {
     return (
-      <section style={{ width: '100%', ...style }}>
+      <section className="board-table-shell" style={style}>
         <BoardTable
           spaces={spaces}
           players={players}
@@ -1042,6 +1076,7 @@ export const Board3D = memo(function Board3D({
           selectedSpaceId={selectedSpaceId}
           activeId={activeId}
           onSelectSpace={selectSpace}
+          reducedMotion={reducedMotion}
         />
         <BoardStatusAnnouncer selectedSpace={selectedSpace} />
       </section>
@@ -1057,8 +1092,8 @@ export const Board3D = memo(function Board3D({
         minHeight: 540,
         overflow: 'hidden',
         borderRadius: 20,
-        background: '#06101b',
-        boxShadow: '0 26px 72px rgba(2, 6, 23, 0.52), inset 0 0 0 1px rgba(231,195,106,0.2)',
+        background: '#69cfe0',
+        boxShadow: '0 12px 0 rgba(49,105,126,0.24), 0 26px 55px rgba(33,104,126,0.36), inset 0 0 0 3px rgba(255,250,209,0.72)',
         ...style,
       }}
     >
@@ -1073,16 +1108,18 @@ export const Board3D = memo(function Board3D({
         }}
         style={{ display: 'block', width: '100%', height: '100%', minHeight: 540, touchAction: 'none' }}
       >
-        <BoardScene
-          spaces={spaces}
-          players={players}
-          properties={properties}
-          selectedSpaceId={selectedSpaceId}
-          activeId={activeId}
-          onSelectSpace={selectSpace}
-          reducedMotion={reducedMotion}
-          shadows={shadows}
-        />
+        <Suspense fallback={<BoardCanvasLoadingScene />}>
+          <BoardScene
+            spaces={spaces}
+            players={players}
+            properties={properties}
+            selectedSpaceId={selectedSpaceId}
+            activeId={activeId}
+            onSelectSpace={selectSpace}
+            reducedMotion={reducedMotion}
+            shadows={shadows}
+          />
+        </Suspense>
       </Canvas>
       <div
         aria-hidden="true"
@@ -1095,16 +1132,16 @@ export const Board3D = memo(function Board3D({
           gap: 7,
           padding: '7px 10px',
           borderRadius: 999,
-          color: '#e5edf2',
-          background: 'rgba(6, 16, 27, 0.72)',
-          border: '1px solid rgba(231,195,106,0.34)',
+          color: '#2e566b',
+          background: 'rgba(255, 252, 233, 0.84)',
+          border: '2px solid rgba(255,255,255,0.74)',
           backdropFilter: 'blur(10px)',
           fontSize: 11,
           fontWeight: 800,
           letterSpacing: '0.09em',
         }}
       >
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#62dca3', boxShadow: '0 0 12px #62dca3' }} />
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4dc989', boxShadow: '0 0 12px #4dc989' }} />
         {players.length}/20 SEATS
       </div>
       <div
@@ -1115,9 +1152,9 @@ export const Board3D = memo(function Board3D({
           bottom: 13,
           padding: '6px 9px',
           borderRadius: 8,
-          color: 'rgba(226,232,240,0.83)',
-          background: 'rgba(6, 16, 27, 0.62)',
-          border: '1px solid rgba(148,163,184,0.2)',
+          color: '#416d80',
+          background: 'rgba(255, 253, 238, 0.78)',
+          border: '2px solid rgba(255,255,255,0.6)',
           backdropFilter: 'blur(8px)',
           fontSize: 10,
           fontWeight: 700,
@@ -1130,6 +1167,23 @@ export const Board3D = memo(function Board3D({
     </section>
   );
 });
+
+function BoardCanvasLoadingScene() {
+  return (
+    <>
+      <color attach="background" args={['#6fd5dd']} />
+      <hemisphereLight args={['#fff6c7', '#3196ae', 2.2]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[32, 32]} />
+        <meshStandardMaterial color="#9be5cf" roughness={0.92} />
+      </mesh>
+      <mesh position={[0, 0.18, 0]}>
+        <boxGeometry args={[20, 0.28, 20]} />
+        <meshStandardMaterial color="#fff4c9" roughness={0.72} />
+      </mesh>
+    </>
+  );
+}
 
 function BoardStatusAnnouncer({ selectedSpace }: { selectedSpace?: VisualSpace }) {
   return (

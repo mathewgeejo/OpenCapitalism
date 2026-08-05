@@ -27,7 +27,9 @@ type GameTableProps = {
 export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbor Assembly', roomVisibility = 'public', onCreateInvite, onAction, onExit }: GameTableProps) {
   const [selectedTileId, setSelectedTileId] = useState<string | null>(BOARD[0]?.id ?? null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(actorId)
-  const [view, setView] = useState<BoardView>('3d')
+  // The illustrated board is the dependable baseline. The WebGL city stays
+  // available as an optional flourish instead of being required to play.
+  const [view, setView] = useState<BoardView>('table')
   const [reducedMotion, setReducedMotion] = useState(false)
   const [tradeOpen, setTradeOpen] = useState(false)
   const [placeSetId, setPlaceSetId] = useState<PlaceSetId>(() => {
@@ -50,6 +52,8 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
   const placeSet = getPlaceSet(placeSetId)
   const rollEvent = [...game.events].reverse().find((event) => event.type === 'roll' || /\brolled\b/i.test(event.message))
   const rollSignature = `${rollEvent?.id ?? 'none'}:${game.lastRoll?.join(':') ?? 'none'}`
+  const completedRolls = game.events.filter((event) => event.type === 'roll' || /\brolled\b/i.test(event.message)).length
+  const roundNumber = Math.max(1, Math.floor(completedRolls / Math.max(1, game.players.length)) + 1)
 
   useEffect(() => {
     if (!initialRollRef.current) {
@@ -91,11 +95,15 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-left">
-          <Brand compact />
+          <div className="hud-logo">
+            <Brand compact />
+            <span><small>GAME NIGHT</small><strong>CIVIC FORTUNE</strong></span>
+          </div>
           <div className="room-label">
             <Trees size={15} />
             <span><strong>{roomTitle}</strong> · {roomVisibility === 'private' ? 'Invite-only table' : 'Public table'}</span>
           </div>
+          <span className="round-chip"><small>ROUND</small><strong>{roundNumber}</strong></span>
           <CurrentPlayerSummary game={game} />
         </div>
         <div className="topbar-right">
@@ -118,7 +126,7 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
             </select>
           </label>
           <button className="topbar-button" type="button" onClick={() => setView(view === '3d' ? 'table' : '3d')} title="Switch board view">
-            <Table2 size={15} /> <span className="topbar-button-label">{view === '3d' ? 'Table view' : '3D view'}</span>
+            <Table2 size={15} /> <span className="topbar-button-label">{view === '3d' ? 'Table board' : 'Mini city'}</span>
           </button>
           <button className="topbar-button" type="button" onClick={() => setReducedMotion(!reducedMotion)} title="Toggle reduced motion">
             <Accessibility size={15} /> <span className="topbar-button-label">Motion</span>

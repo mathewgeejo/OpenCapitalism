@@ -59,7 +59,7 @@ export function TileInspector({ game, selectedTileId, actorId, placeSetId, onAct
       <div className="tile-card-details">
         <span><MapPin size={12} /> OWNER<strong>{owner?.name ?? 'City bank'}</strong></span>
         <span><Landmark size={12} /> RENT<strong>{rentLabel}</strong></span>
-        <span><Building2 size={12} /> DEVELOPMENT<strong>{property?.buildings === 5 ? 'Tower' : `${property?.buildings ?? 0} houses`}</strong></span>
+        <span><Building2 size={12} /> DEVELOPMENT<strong>{property?.buildings === 5 ? 'Hotel' : `${property?.buildings ?? 0} houses`}</strong></span>
       </div>
       {property?.mortgaged && <p className="tile-warning"><LockKeyhole size={13} /> This asset is mortgaged.</p>}
       {resolvingDebt && ownsAsset && (
