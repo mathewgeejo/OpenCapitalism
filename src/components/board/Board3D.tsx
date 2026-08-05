@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import type { GameState, PublicGameState } from '../../game/types';
-import { BOARD } from '../../game/board';
+import { BOARD, BOARD_SIZE as GAME_BOARD_SIZE } from '../../game/board';
 
 type UnknownRecord = Record<string, unknown>;
 type BoardGameState = GameState | PublicGameState;
@@ -24,6 +24,13 @@ type VisualSpace = {
   price?: number;
 };
 
+type VisualSlot = {
+  /** Index in the intentionally compact, rendered board ring. */
+  index: number;
+  /** One or two real game spaces represented by this display tile. */
+  spaces: VisualSpace[];
+};
+
 type PropertyVisualState = {
   ownerId?: string;
   buildings: number;
@@ -31,7 +38,7 @@ type PropertyVisualState = {
 };
 
 type BoardTableProps = {
-  spaces: VisualSpace[];
+  spaces: VisualSlot[];
   players: VisualPlayer[];
   properties: Map<string, PropertyVisualState>;
   selectedSpaceId: string | null;
@@ -53,7 +60,18 @@ export interface Board3DProps {
   style?: CSSProperties;
 }
 
-const BOARD_SIZE = 52;
+/**
+ * The game still has its original 52 authoritative spaces.  The visual board
+ * deliberately renders eleven positions per side (including both corners),
+ * so players get forty large, readable tile slots rather than 52 tiny ones.
+ */
+const VISUAL_EDGE_SPACES = 11;
+const VISUAL_EDGE_STEPS = VISUAL_EDGE_SPACES - 1;
+const VISUAL_RING_SPACES = VISUAL_EDGE_STEPS * 4;
+const LOGICAL_EDGE_STEPS = GAME_BOARD_SIZE / 4;
+const LOGICAL_INTERIOR_PER_EDGE = LOGICAL_EDGE_STEPS - 1;
+const VISUAL_INTERIOR_PER_EDGE = VISUAL_EDGE_SPACES - 2;
+const DEFAULT_ZOOM = 0.92;
 const MIN_ZOOM = 0.78;
 const MAX_ZOOM = 1.08;
 
@@ -110,7 +128,7 @@ function normaliseBoard(): VisualSpace[] {
     ? source
     : asArray(sourceRecord?.spaces ?? sourceRecord?.tiles ?? sourceRecord?.board);
 
-  return rawSpaces.slice(0, BOARD_SIZE).map((value, position) => {
+  return rawSpaces.slice(0, GAME_BOARD_SIZE).map((value, position) => {
     const space = asRecord(value) ?? {};
     return {
       id: stringValue(space.id ?? space.spaceId ?? space.key, `space-${position}`),
@@ -178,7 +196,34 @@ function activePlayerId(game: BoardGameState): string | undefined {
 }
 
 function normaliseIndex(index: number): number {
-  return ((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+  return ((index % GAME_BOARD_SIZE) + GAME_BOARD_SIZE) % GAME_BOARD_SIZE;
+}
+
+/**
+ * Maps each of the thirteen logical positions on a directional edge to ten
+ * visual ring slots. The corner remains exact and the three smallest groups
+ * are merged into neighbouring visual tiles. Every logical position has one
+ * stable display slot, so pawns, ownership and selection remain visible.
+ */
+function visualIndexForLogicalIndex(index: number): number {
+  const logicalIndex = normaliseIndex(index);
+  const side = Math.floor(logicalIndex / LOGICAL_EDGE_STEPS);
+  const positionOnSide = logicalIndex % LOGICAL_EDGE_STEPS;
+
+  if (positionOnSide === 0) return side * VISUAL_EDGE_STEPS;
+
+  const compactPosition = Math.ceil(positionOnSide * VISUAL_INTERIOR_PER_EDGE / LOGICAL_INTERIOR_PER_EDGE);
+  return side * VISUAL_EDGE_STEPS + compactPosition;
+}
+
+function visualSlots(spaces: VisualSpace[]): VisualSlot[] {
+  const slots = Array.from({ length: VISUAL_RING_SPACES }, (_, index): VisualSlot => ({ index, spaces: [] }));
+
+  for (const space of spaces) {
+    slots[visualIndexForLogicalIndex(space.index)].spaces.push(space);
+  }
+
+  return slots;
 }
 
 function tileColor(space: VisualSpace): string {
@@ -186,15 +231,12 @@ function tileColor(space: VisualSpace): string {
 }
 
 function tablePlacement(index: number): { gridColumn: number; gridRow: number } {
-  const position = normaliseIndex(index);
-  if (position === 0) return { gridColumn: 14, gridRow: 14 };
-  if (position <= 12) return { gridColumn: 14 - position, gridRow: 14 };
-  if (position === 13) return { gridColumn: 1, gridRow: 14 };
-  if (position <= 25) return { gridColumn: 1, gridRow: 14 - (position - 13) };
-  if (position === 26) return { gridColumn: 1, gridRow: 1 };
-  if (position <= 38) return { gridColumn: position - 25, gridRow: 1 };
-  if (position === 39) return { gridColumn: 14, gridRow: 1 };
-  return { gridColumn: 14, gridRow: position - 38 };
+  const position = ((index % VISUAL_RING_SPACES) + VISUAL_RING_SPACES) % VISUAL_RING_SPACES;
+  if (position === 0) return { gridColumn: VISUAL_EDGE_SPACES, gridRow: VISUAL_EDGE_SPACES };
+  if (position <= VISUAL_EDGE_STEPS) return { gridColumn: VISUAL_EDGE_SPACES - position, gridRow: VISUAL_EDGE_SPACES };
+  if (position <= VISUAL_EDGE_STEPS * 2) return { gridColumn: 1, gridRow: VISUAL_EDGE_SPACES - (position - VISUAL_EDGE_STEPS) };
+  if (position <= VISUAL_EDGE_STEPS * 3) return { gridColumn: position - (VISUAL_EDGE_STEPS * 2) + 1, gridRow: 1 };
+  return { gridColumn: VISUAL_EDGE_SPACES, gridRow: position - (VISUAL_EDGE_STEPS * 3) + 1 };
 }
 
 function spaceCaption(space: VisualSpace): string {
@@ -245,12 +287,28 @@ function TablePawn({ player, active }: { player: VisualPlayer; active: boolean }
   );
 }
 
+function propertyForSpace(space: VisualSpace, properties: Map<string, PropertyVisualState>): PropertyVisualState | undefined {
+  return properties.get(space.id) ?? properties.get(String(space.index));
+}
+
+function propertyForSlot(slot: VisualSlot, selectedSpaceId: string | null, properties: Map<string, PropertyVisualState>): PropertyVisualState | undefined {
+  const selectedSpace = slot.spaces.find((space) => space.id === selectedSpaceId);
+  if (selectedSpace) return propertyForSpace(selectedSpace, properties);
+
+  return slot.spaces.reduce<PropertyVisualState | undefined>((mostDeveloped, space) => {
+    const candidate = propertyForSpace(space, properties);
+    if (!candidate) return mostDeveloped;
+    if (!mostDeveloped || candidate.buildings > mostDeveloped.buildings || (candidate.ownerId && !mostDeveloped.ownerId)) return candidate;
+    return mostDeveloped;
+  }, undefined);
+}
+
 function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, onSelectSpace, reducedMotion }: BoardTableProps) {
   const playerById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const tokensByIndex = useMemo(() => {
     const map = new Map<number, VisualPlayer[]>();
     players.filter((player) => !player.isBankrupt).forEach((player) => {
-      const index = normaliseIndex(player.position);
+      const index = visualIndexForLogicalIndex(player.position);
       map.set(index, [...(map.get(index) ?? []), player]);
     });
     return map;
@@ -272,24 +330,32 @@ function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, on
           <small>THE FRIENDLIEST CITY ON THE BOARD</small>
         </div>
       </div>
-      {spaces.map((space) => {
-        const property = properties.get(space.id) ?? properties.get(String(space.index));
+      {spaces.map((slot) => {
+        const selectedMemberIndex = slot.spaces.findIndex((space) => space.id === selectedSpaceId);
+        const space = slot.spaces[selectedMemberIndex] ?? slot.spaces[0];
+        if (!space) return null;
+        const property = propertyForSlot(slot, selectedSpaceId, properties);
         const owner = property?.ownerId ? playerById.get(property.ownerId) : undefined;
-        const tokens = tokensByIndex.get(normaliseIndex(space.index)) ?? [];
-        const placement = tablePlacement(space.index);
-        const selected = space.id === selectedSpaceId;
-        const special = placement.gridColumn === 1 || placement.gridColumn === 14 || placement.gridRow === 1 || placement.gridRow === 14;
+        const tokens = tokensByIndex.get(slot.index) ?? [];
+        const placement = tablePlacement(slot.index);
+        const selected = selectedMemberIndex >= 0;
+        const special = placement.gridColumn === 1 || placement.gridColumn === VISUAL_EDGE_SPACES || placement.gridRow === 1 || placement.gridRow === VISUAL_EDGE_SPACES;
+        const nextSpace = slot.spaces[(selectedMemberIndex + 1 + slot.spaces.length) % slot.spaces.length] ?? space;
+        const groupedNames = slot.spaces.length > 1
+          ? `, shares this display tile with ${slot.spaces.filter((member) => member.id !== space.id).map((member) => member.label).join(', ')}`
+          : '';
         return (
           <button
-            key={space.id}
+            key={slot.index}
             type="button"
-            onClick={() => onSelectSpace(space.id)}
+            onClick={() => onSelectSpace(nextSpace.id)}
             aria-pressed={selected}
-            aria-label={`${space.label}${owner ? `, owned by ${owner.name}` : ''}${tokens.length ? `, ${tokens.length} player token${tokens.length === 1 ? '' : 's'}` : ''}`}
+            aria-label={`${space.label}${groupedNames}${owner ? `, owned by ${owner.name}` : ''}${tokens.length ? `, ${tokens.length} player token${tokens.length === 1 ? '' : 's'}` : ''}`}
             className={`board-tile board-tile--${space.kind}${special ? ' board-tile--edge' : ''}${selected ? ' board-tile--selected' : ''}${owner ? ' board-tile--owned' : ''}`}
             style={{ gridColumn: placement.gridColumn, gridRow: placement.gridRow, '--tile-color': tileColor(space), '--owner-color': owner?.color ?? 'transparent' } as CSSProperties}
           >
             <span className="board-tile__stripe" />
+            {slot.spaces.length > 1 && <span className="board-tile__group-count" aria-hidden="true">+{slot.spaces.length - 1}</span>}
             <span className="board-tile__icon" aria-hidden="true">{tableSpaceIcon(space)}</span>
             <span className="board-tile__name">{space.label}</span>
             <span className="board-tile__caption">{spaceCaption(space)}</span>
@@ -311,10 +377,11 @@ function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, on
  */
 export const Board3D = memo(function Board3D({ game, selectedSpaceId: selectedSpaceIdProp, onSelectSpace, reducedMotion = false, style }: Board3DProps) {
   const [localSelectedSpaceId, setLocalSelectedSpaceId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pinchPoints = useRef(new Map<number, { x: number; y: number }>());
   const pinchStart = useRef<{ distance: number; zoom: number } | null>(null);
   const spaces = useMemo(normaliseBoard, []);
+  const compactSpaces = useMemo(() => visualSlots(spaces), [spaces]);
   const players = useMemo(() => normalisePlayers(game), [game]);
   const properties = useMemo(() => normaliseProperties(game, players), [game, players]);
   const activeId = useMemo(() => activePlayerId(game), [game]);
@@ -373,10 +440,10 @@ export const Board3D = memo(function Board3D({ game, selectedSpaceId: selectedSp
       onPointerCancel={endPinch}
       style={{ '--board-zoom': zoom, ...style } as CSSProperties}
     >
-      <BoardTable spaces={spaces} players={players} properties={properties} selectedSpaceId={selectedSpaceId} activeId={activeId} onSelectSpace={selectSpace} reducedMotion={reducedMotion} />
+      <BoardTable spaces={compactSpaces} players={players} properties={properties} selectedSpaceId={selectedSpaceId} activeId={activeId} onSelectSpace={selectSpace} reducedMotion={reducedMotion} />
       <div className="board-zoom-controls" role="group" aria-label="Board zoom controls">
         <button type="button" aria-label="Zoom out" onClick={() => setZoom((current) => clampZoom(current - 0.1))}>-</button>
-        <button type="button" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+        <button type="button" aria-label="Reset zoom" onClick={() => setZoom(DEFAULT_ZOOM)}>{Math.round(zoom * 100)}%</button>
         <button type="button" aria-label="Zoom in" onClick={() => setZoom((current) => clampZoom(current + 0.1))}>+</button>
       </div>
       <span className="board-zoom-hint" aria-hidden="true">SCROLL / PINCH TO ZOOM</span>
