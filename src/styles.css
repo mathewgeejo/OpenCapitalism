@@ -914,3 +914,218 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 
 .player-list { flex: 0 0 auto; min-height: 0; max-height: 46%; }
 .activity { flex: 1 1 auto; min-height: 9rem; }
+
+/* A CSS 3D game board keeps the requested fixed camera angle without a GPU
+   dependency, while every tile remains a normal, accessible interaction. */
+.board-table-shell--isometric {
+  --board-zoom: 1;
+  position: relative;
+  isolation: isolate;
+  touch-action: none;
+  perspective: 1500px;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(42, 207, 198, .12), transparent 28%),
+    radial-gradient(circle at 16% 88%, rgba(255, 89, 128, .1), transparent 30%),
+    #090d1c;
+}
+.board-table-shell--isometric::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 9%;
+  border: 1px solid rgba(64, 215, 204, .13);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(15, 32, 59, .42), transparent 67%);
+  filter: blur(1px);
+  pointer-events: none;
+}
+.board-table-shell--isometric .play-board--isometric {
+  width: min(80%, calc(100dvh - 9rem), 820px);
+  overflow: visible;
+  border: clamp(5px, .66vmin, 10px) solid #060914;
+  border-radius: clamp(3px, .5vmin, 8px);
+  background:
+    linear-gradient(45deg, rgba(66, 225, 211, .045) 25%, transparent 25% 75%, rgba(66, 225, 211, .045) 75%) 0 0 / 1rem 1rem,
+    #0c1121;
+  box-shadow:
+    0 .8rem 0 #050711,
+    0 1.45rem 1.85rem rgba(0, 0, 0, .64),
+    0 2.8rem 4.5rem rgba(2, 5, 16, .58),
+    inset 0 0 0 1px rgba(96, 235, 222, .14);
+  transform: translateY(-7vmin) perspective(1600px) rotateX(58deg) rotateZ(45deg) scale(var(--board-zoom));
+  transform-origin: center;
+  transform-style: preserve-3d;
+  transition: transform 220ms cubic-bezier(.2, .8, .2, 1);
+}
+.board-table-shell--isometric .play-board--isometric::before {
+  border-color: rgba(73, 214, 203, .22);
+  border-radius: 2px;
+}
+.board-table-shell--isometric .play-board--isometric::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: #040610;
+  box-shadow: 0 1.15rem 0 #03050c;
+  transform: translateZ(-.72rem);
+  pointer-events: none;
+}
+.board-table-shell--isometric .play-board__center {
+  border-color: #263753;
+  border-radius: 2px;
+  background:
+    radial-gradient(circle at 50% 47%, rgba(60, 225, 211, .18) 0 3%, transparent 3.5%),
+    radial-gradient(circle at 50% 50%, rgba(66, 185, 232, .12), transparent 34%),
+    linear-gradient(135deg, #151d33, #080c18 72%);
+  box-shadow: inset 0 0 0 clamp(4px, .6vmin, 9px) rgba(46, 68, 104, .42), inset 0 -8px rgba(0, 0, 0, .23);
+  transform: translateZ(.08rem);
+  transform-style: preserve-3d;
+}
+.board-table-shell--isometric .play-board__center::before,
+.board-table-shell--isometric .play-board__center::after,
+.board-table-shell--isometric .play-board__sun,
+.board-table-shell--isometric .play-board__cloud,
+.board-table-shell--isometric .play-board__road,
+.board-table-shell--isometric .play-board__park { display: none; }
+.board-table-shell--isometric .play-board__fountain {
+  border-color: #1b3a55;
+  background: #1c8ca1;
+  box-shadow: 0 .45vmin 0 #07111f, inset 0 0 0 .55vmin rgba(164, 252, 239, .22), 0 0 1.4vmin rgba(44, 221, 209, .36);
+  transform: translateZ(.45rem);
+}
+.board-table-shell--isometric .play-board__title {
+  color: #eaf7fa;
+  text-shadow: 0 .16vmin 0 #080b17;
+  transform: translateZ(.28rem) rotate(-3deg);
+}
+.board-table-shell--isometric .play-board__title > span {
+  color: #09101d;
+  background: #f3c459;
+  box-shadow: 0 .22vmin 0 #9c6523;
+}
+.board-table-shell--isometric .play-board__title strong b { color: #46d8cf; }
+.board-table-shell--isometric .play-board__title small { color: #9cb4ce; }
+.board-table-shell--isometric .board-tile {
+  border-color: #273751;
+  color: #f8fafc;
+  background: linear-gradient(145deg, #1a243a, #0b101e);
+  box-shadow: 0 .38rem 0 #060914, 0 .7rem .85rem rgba(0, 0, 0, .4), inset 0 1px rgba(255,255,255,.08);
+  transform: translateZ(.2rem);
+  transform-style: preserve-3d;
+}
+.board-table-shell--isometric .board-tile__name { color: #f8fafc; }
+.board-table-shell--isometric .board-tile__caption { color: #9eafc8; }
+.board-table-shell--isometric .board-tile__stripe { border-bottom-color: rgba(255,255,255,.16); }
+.board-table-shell--isometric .board-tile--start,
+.board-table-shell--isometric .board-tile--event,
+.board-table-shell--isometric .board-tile--civic,
+.board-table-shell--isometric .board-tile--transit,
+.board-table-shell--isometric .board-tile--route,
+.board-table-shell--isometric .board-tile--utility,
+.board-table-shell--isometric .board-tile--works,
+.board-table-shell--isometric .board-tile--levy,
+.board-table-shell--isometric .board-tile--tax,
+.board-table-shell--isometric .board-tile--detention,
+.board-table-shell--isometric .board-tile--gotodetention,
+.board-table-shell--isometric .board-tile--festival,
+.board-table-shell--isometric .board-tile--rest { background: linear-gradient(145deg, #1a243a, #0b101e); }
+.board-table-shell--isometric .board-tile:hover {
+  transform: translateZ(.52rem) translateY(-.32vmin) rotate(-1deg) scale(1.055);
+  box-shadow: 0 .58rem 0 #060914, 0 1rem 1.25rem rgba(0, 0, 0, .52);
+}
+.board-table-shell--isometric .board-tile--selected {
+  border-color: #f6ca59;
+  background: linear-gradient(145deg, #263653, #11182a);
+  box-shadow: 0 0 0 clamp(2px, .32vmin, 4px) rgba(255, 215, 109, .74), 0 .55vmin 0 #d78445, 0 1rem 1.6rem rgba(0, 0, 0, .54);
+  animation: board-tile-isometric-bounce 1.15s ease-in-out infinite;
+}
+.board-table-shell--isometric .board-house,
+.board-table-shell--isometric .board-hotel,
+.board-table-shell--isometric .board-pawn {
+  transform: translateZ(.62rem);
+  filter: drop-shadow(0 .24rem .14rem rgba(0, 0, 0, .5));
+}
+.board-table-shell--isometric .board-house {
+  width: clamp(5px, .88vmin, 10px);
+  height: clamp(5px, .72vmin, 8px);
+  border-color: #23634f;
+  background: #64d793;
+}
+.board-table-shell--isometric .board-house::before {
+  top: calc(-1 * clamp(4px, .62vmin, 7px));
+  border-right-width: clamp(3px, .5vmin, 6px);
+  border-bottom-width: clamp(4px, .62vmin, 7px);
+  border-left-width: clamp(3px, .5vmin, 6px);
+  border-bottom-color: #ff718e;
+}
+.board-table-shell--isometric .board-hotel { transform: translateZ(.84rem); }
+.board-table-shell--isometric .board-hotel {
+  width: clamp(11px, 1.72vmin, 19px);
+  height: clamp(9px, 1.3vmin, 15px);
+  border-color: #a84962;
+  background: #fb6b7f;
+}
+.board-table-shell--isometric .board-pawn {
+  width: clamp(8px, 1.08vmin, 12px);
+  height: clamp(11px, 1.55vmin, 17px);
+}
+.board-table-shell--isometric .board-pawn--active { animation-name: board-pawn-isometric-bob; }
+.board-table-shell--isometric .board-tile__buildings,
+.board-table-shell--isometric .board-tile__pawns { transform-style: preserve-3d; }
+@keyframes board-tile-isometric-bounce {
+  0%, 100% { transform: translateZ(.31rem) translateY(-.08vmin); }
+  50% { transform: translateZ(.57rem) translateY(-.48vmin); }
+}
+@keyframes board-pawn-isometric-bob {
+  from { transform: translateZ(.62rem) translateY(0); }
+  to { transform: translateZ(.84rem) translateY(-.34vmin); }
+}
+.board-zoom-controls {
+  position: absolute;
+  z-index: 9;
+  right: 1rem;
+  bottom: 1rem;
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid rgba(70, 224, 214, .44);
+  border-radius: 9px;
+  background: rgba(7, 12, 27, .86);
+  box-shadow: 0 7px 19px rgba(0, 0, 0, .3);
+  backdrop-filter: blur(9px);
+}
+.board-zoom-controls button {
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 0;
+  border-right: 1px solid rgba(70, 224, 214, .25);
+  color: #eafaf8;
+  background: transparent;
+  font: 850 .7rem/1 inherit;
+}
+.board-zoom-controls button:last-child { border-right: 0; }
+.board-zoom-controls button:hover { color: #fff; background: rgba(68, 222, 209, .18); }
+.board-zoom-hint {
+  position: absolute;
+  z-index: 8;
+  right: 1rem;
+  bottom: 3.55rem;
+  padding: .32rem .5rem;
+  border: 1px solid rgba(99, 137, 178, .3);
+  border-radius: 6px;
+  color: #bed1e7;
+  background: rgba(7, 12, 27, .76);
+  font-size: .54rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+@media (min-width: 1180px) {
+  .board-table-shell--isometric { padding-left: clamp(18rem, 23vw, 22rem); }
+}
+@media (max-width: 720px) {
+  .board-table-shell--isometric { padding: .4rem; perspective: 1000px; }
+  .board-table-shell--isometric .play-board--isometric { width: min(78%, 70vh); transform: translateY(-3vmin) perspective(1000px) rotateX(58deg) rotateZ(45deg) scale(var(--board-zoom)); }
+  .board-zoom-controls { right: .6rem; bottom: .6rem; }
+  .board-zoom-hint { display: none; }
+}

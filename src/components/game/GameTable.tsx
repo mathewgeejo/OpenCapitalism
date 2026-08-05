@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Accessibility, Crown, Handshake, Link2, LogOut, Map, Table2, Trees, Trophy, Volume2 } from 'lucide-react'
-import { Board3D, type BoardView } from '../board/Board3D'
+import { Accessibility, Crown, Handshake, Link2, LogOut, Map, Trees, Trophy, Volume2 } from 'lucide-react'
+import { Board3D } from '../board/Board3D'
 import type { GameAction, GameViewState } from '../../game/types'
 import { BOARD } from '../../game/board'
 import { DEFAULT_PLACE_SET_ID, getPlaceSet, isPlaceSetId, PLACE_SETS, type PlaceSetId } from '../../game/placeSets'
@@ -27,9 +27,6 @@ type GameTableProps = {
 export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbor Assembly', roomVisibility = 'public', onCreateInvite, onAction, onExit }: GameTableProps) {
   const [selectedTileId, setSelectedTileId] = useState<string | null>(BOARD[0]?.id ?? null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(actorId)
-  // The illustrated board is the dependable baseline. The WebGL city stays
-  // available as an optional flourish instead of being required to play.
-  const [view, setView] = useState<BoardView>('table')
   const [reducedMotion, setReducedMotion] = useState(false)
   const [tradeOpen, setTradeOpen] = useState(false)
   const [placeSetId, setPlaceSetId] = useState<PlaceSetId>(() => {
@@ -125,9 +122,6 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
               {PLACE_SETS.map((set) => <option key={set.id} value={set.id}>{set.shortLabel}</option>)}
             </select>
           </label>
-          <button className="topbar-button" type="button" onClick={() => setView(view === '3d' ? 'table' : '3d')} title="Switch board view">
-            <Table2 size={15} /> <span className="topbar-button-label">{view === '3d' ? 'Table board' : 'Mini city'}</span>
-          </button>
           <button className="topbar-button" type="button" onClick={() => setReducedMotion(!reducedMotion)} title="Toggle reduced motion">
             <Accessibility size={15} /> <span className="topbar-button-label">Motion</span>
           </button>
@@ -144,10 +138,8 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
               game={game}
               selectedSpaceId={selectedTileId}
               onSelectSpace={setSelectedTileId}
-              view={view}
               reducedMotion={reducedMotion}
-              shadows={!reducedMotion}
-              style={{ height: '100%', minHeight: '100%' }}
+              style={{ height: '100%' }}
             />
           </div>
           <div className="dice-roll-slot" aria-hidden={game.lastRoll === null}>

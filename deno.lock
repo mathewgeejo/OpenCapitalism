@@ -41,18 +41,14 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@react-three/drei@^10.7.6",
-        "npm:@react-three/fiber@^9.3.0",
         "npm:@supabase/supabase-js@^2.56.0",
         "npm:@types/react-dom@19",
         "npm:@types/react@19",
-        "npm:@types/three@0.181",
         "npm:@vitejs/plugin-react@^4.4.1",
         "npm:lucide-react@0.468",
         "npm:react-dom@19",
         "npm:react@19",
         "npm:tailwindcss@^4.1.13",
-        "npm:three@~0.181.1",
         "npm:typescript@~5.7.2",
         "npm:vite@^6.0.5",
         "npm:vitest@^3.0.5",

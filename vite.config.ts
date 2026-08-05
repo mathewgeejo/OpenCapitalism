@@ -7,7 +7,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/three') || id.includes('node_modules/@react-three')) return 'three-renderer'
           if (id.includes('node_modules/@supabase')) return 'supabase-client'
           return undefined
         },
