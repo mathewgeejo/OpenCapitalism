@@ -8,9 +8,10 @@ type GameControlsProps = {
   game: GameViewState
   actorId: string
   onAction: (action: GameAction) => void
+  busy?: boolean
 }
 
-export function GameControls({ game, actorId, onAction }: GameControlsProps) {
+export function GameControls({ game, actorId, onAction, busy = false }: GameControlsProps) {
   const [bid, setBid] = useState('')
   const [now, setNow] = useState(() => Date.now())
   const [confirmEnd, setConfirmEnd] = useState(false)
@@ -84,9 +85,9 @@ export function GameControls({ game, actorId, onAction }: GameControlsProps) {
         <span className="turn-token" style={{ background: current?.color ?? '#7ccfc5' }}>{current ? current.name.slice(0, 1).toUpperCase() : 'C'}</span>
         <div className="turn-copy">
           <p>{turnHeading}</p>
-          <span>{description}</span>
+          <span>{busy ? "Dice first, then your pawn makes its move." : description}</span>
         </div>
-        <div className="turn-actions">
+        <div className="turn-actions" inert={busy || undefined} aria-busy={busy}>
           {game.phase === 'awaitingPurchase' && isMyTurn && (
             <button className="secondary-button" type="button" onClick={() => onAction({ type: 'DECLINE_PROPERTY', playerId: actorId })}>
               <Gavel size={14} /> Auction
@@ -104,7 +105,7 @@ export function GameControls({ game, actorId, onAction }: GameControlsProps) {
             <DetentionActions game={game} actorId={actorId} player={current} onAction={onAction} />
           )}
           {main ? (
-            <button className="dice-button" type="button" onClick={() => onAction(main.action)}>
+            <button className="dice-button" disabled={busy} type="button" onClick={() => onAction(main.action)}>
               <MainIcon size={16} /> {main.label}
             </button>
           ) : null}

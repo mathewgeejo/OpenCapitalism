@@ -25,9 +25,9 @@ const withOwnership = (state: GameState, ownerId: string, tileIds: TileId[]): Ga
 };
 
 describe("Civic Fortune board", () => {
-  it("has an original, data-driven 52-space board with 32 district parcels", () => {
-    expect(BOARD).toHaveLength(52);
-    expect(BOARD.filter((tile) => tile.kind === "district")).toHaveLength(32);
+  it("has an original, data-driven 40-space board with 22 country properties", () => {
+    expect(BOARD).toHaveLength(40);
+    expect(BOARD.filter((tile) => tile.kind === "district")).toHaveLength(22);
     expect(BOARD.filter((tile) => tile.kind === "transit")).toHaveLength(4);
     expect(BOARD.filter((tile) => tile.kind === "utility")).toHaveLength(2);
     expect(BOARD.map((tile) => tile.id)).toEqual(expect.arrayContaining(["founders-plaza", "commons-festival", "return-to-hold"]));
@@ -116,7 +116,7 @@ describe("Civic Fortune reducer", () => {
   it("awards the Founders' Plaza bonus exactly once when landing on it", () => {
     let state = startedGame();
     state = structuredClone(state) as GameState;
-    state.players.find((player) => player.id === "ava")!.position = 50;
+    state.players.find((player) => player.id === "ava")!.position = 38;
 
     const landed = reduceGame(state, { type: "ROLL", playerId: "ava", dice: [1, 1], now: 3_000 });
 
@@ -148,7 +148,7 @@ describe("Civic Fortune reducer", () => {
   it("applies a card effect from the server-side deck", () => {
     let state = startedGame();
     state = structuredClone(state) as GameState;
-    state.players.find((player) => player.id === "ava")!.position = 6;
+    state.players.find((player) => player.id === "ava")!.position = 5;
     const cardState = reduceGame(state, { type: "ROLL", playerId: "ava", dice: [1, 1], now: 3_000 });
 
     expect(cardState.players.find((player) => player.id === "ava")?.cash).toBe(1_650);

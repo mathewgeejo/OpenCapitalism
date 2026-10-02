@@ -1,4 +1,5 @@
 import { DEFAULT_RULES, type GameAction, type GameEvent, type GamePhase, type GameRules, type PublicGameState } from '../game'
+import { BOARD_BY_ID, BOARD_SIZE } from '../game/board'
 
 type JsonRecord = Record<string, unknown>
 
@@ -74,7 +75,7 @@ function remoteEvents(items: unknown[]): GameEvent[] {
     return {
       id: String(event.id ?? `remote-${index}`),
       sequence: asNumber(event.ordinal, asNumber(event.id, index + 1)),
-      type: 'message',
+      type: asString(event.kind ?? event.type) === 'card_drawn' ? 'card' : asString(event.kind ?? event.type) === 'rolled' ? 'roll' : 'message',
       actorId: asString(event.actor_id ?? event.actorId) || null,
       message: asString(event.message, 'The city ledger changed.'),
       createdAt: Number.isNaN(Date.parse(created)) ? Date.now() : Date.parse(created),
@@ -91,6 +92,9 @@ function remoteEvents(items: unknown[]): GameEvent[] {
 export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameState {
   const snapshot = asRecord(envelope.snapshot)
   const assets = asArray(snapshot.assets).map(asRecord)
+  if (assets.some(asset => !BOARD_BY_ID[asString(asset.tileId)]) || asArray(snapshot.players).some(raw => asNumber(asRecord(raw).position) >= BOARD_SIZE)) {
+    throw new Error('This room uses the previous board. Create a new World Tour room to play the 40-space edition.')
+  }
   const ownership = new Map<string, string[]>()
   const properties: PublicGameState['properties'] = {}
   for (const asset of assets) {
@@ -200,7 +204,7 @@ export function adaptRemoteGame(envelope: RemoteSnapshotEnvelope): PublicGameSta
     hostId: envelope.game.hostUserId,
     players,
     currentPlayerId: asString(snapshot.currentPlayerId, envelope.game.currentPlayerId ?? '') || null,
-    currentTurn: asNumber(snapshot.round),
+    currentTurn: asNumber(snapshot.turnNumber, asNumber(snapshot.round, 1)),
     turnEndsAt: Number.isNaN(Date.parse(asString(snapshot.turnDeadlineAt))) ? null : Date.parse(asString(snapshot.turnDeadlineAt)),
     rules: remoteRules(envelope.game),
     properties,

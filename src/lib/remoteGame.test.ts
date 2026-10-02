@@ -37,6 +37,10 @@ const envelope: RemoteSnapshotEnvelope = {
 }
 
 describe('remote game adapter', () => {
+  it('rejects legacy 52-space snapshots instead of silently moving players onto different countries', () => {
+    expect(() => adaptRemoteGame({ ...envelope, snapshot: { ...envelope.snapshot, assets: [{ tileId: 'orchard-gate', ownerId: null }] } })).toThrow(/previous board/)
+    expect(() => adaptRemoteGame({ ...envelope, snapshot: { ...envelope.snapshot, players: [{ id: 'host', position: 51 }] } })).toThrow(/previous board/)
+  })
   it('renders an authoritative public snapshot without server-private deck state', () => {
     const state = adaptRemoteGame(envelope)
     expect(state.phase).toBe('awaitingPurchase')

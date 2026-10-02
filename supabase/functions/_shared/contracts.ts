@@ -91,6 +91,7 @@ export interface PrivateGameState {
   currentPlayerId: string | null;
   turnDeadlineAt: string | null;
   round: number;
+  turnNumber?: number;
   turnOrder: string[];
   players: Record<string, PrivatePlayer>;
   assets: Record<string, AssetState>;
@@ -139,6 +140,7 @@ export interface PublicGameSnapshot {
   currentPlayerId: string | null;
   turnDeadlineAt: string | null;
   round: number;
+  turnNumber?: number;
   players: PublicPlayerState[];
   assets: PublicAssetState[];
   pendingPurchase: { tileId: string; cost: number } | null;

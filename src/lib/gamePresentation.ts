@@ -31,7 +31,7 @@ export function playerNetWorth(game: GameViewState, player: Player): number {
 export function readablePhase(phase: GamePhase): string {
   const labels: Record<GamePhase, string> = {
     lobby: 'Waiting in lobby',
-    awaitingRoll: 'Roll the civic dice',
+    awaitingRoll: 'The world is waiting. Roll the dice!',
     awaitingPurchase: 'Choose what to do',
     auction: 'Auction in progress',
     awaitingEndTurn: 'Finish your turn',

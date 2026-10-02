@@ -54,11 +54,11 @@ const CIVIC_CARDS: readonly Card[] = [
   { id: "infrastructure_grant", title: "Infrastructure grant", effect: { type: "cash", amount: 150 } },
   { id: "city_services", title: "City services contribution", effect: { type: "pay", amount: 50, jackpot: true } },
   { id: "public_art", title: "Public-art award", effect: { type: "cash", amount: 70 } },
-  { id: "zoning_hearing", title: "Zoning hearing", effect: { type: "move", position: 39 } },
+  { id: "zoning_hearing", title: "Zoning hearing", effect: { type: "move", position: 30 } },
   { id: "release_authorization", title: "Release authorization", effect: { type: "release_permit" } },
   { id: "garden_endowment", title: "Garden endowment", effect: { type: "cash", amount: 110 } },
   { id: "council_fee", title: "Council filing fee", effect: { type: "pay", amount: 75, jackpot: true } },
-  { id: "district_transfer", title: "District transfer", effect: { type: "move", position: 25 } },
+  { id: "district_transfer", title: "District transfer", effect: { type: "move", position: 19 } },
 ];
 
 const EVENT_CARD_BY_ID = new Map(EVENT_CARDS.map((card) => [card.id, card]));
@@ -365,6 +365,7 @@ function advanceTurn(state: PrivateGameState, ctx: EngineContext, events: Public
     if (alive.includes(candidate)) {
       nextId = candidate;
       if (currentIndex + offset >= state.turnOrder.length) state.round += 1;
+      state.turnNumber = (state.turnNumber ?? 1) + 1;
       break;
     }
   }
@@ -547,6 +548,7 @@ export function createInitialGameState(playerIds: string[], settings: GameSettin
     currentPlayerId: playerIds[0],
     turnDeadlineAt: null,
     round: 1,
+    turnNumber: 1,
     turnOrder: [...playerIds],
     players,
     assets,
@@ -578,6 +580,9 @@ export function activateGame(state: PrivateGameState, ctx: EngineContext): Priva
 
 /** Applies a single validated intent to a private state copy. */
 export function applyGameAction(source: PrivateGameState, action: GameAction, ctx: EngineContext): EngineResult {
+  if (Object.keys(source.assets).some(id => !BOARD_BY_ID.has(id))) {
+    rule("BOARD_CHANGED", "This room uses the previous board. Create a new World Tour room.");
+  }
   const state = clone(source);
   const events: PublicGameEvent[] = [];
   const memberStatusChanges: EngineResult["memberStatusChanges"] = [];
@@ -865,6 +870,7 @@ export function toPublicSnapshot(state: PrivateGameState, playerMeta: PlayerMeta
     currentPlayerId: state.currentPlayerId,
     turnDeadlineAt: state.turnDeadlineAt,
     round: state.round,
+    turnNumber: state.turnNumber ?? 1,
     players: state.turnOrder.map((id) => {
       const player = state.players[id];
       const meta = metas.get(id);

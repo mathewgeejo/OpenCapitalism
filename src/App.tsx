@@ -4,7 +4,7 @@ import { AuthPanel } from './components/AuthPanel'
 import { PasswordRecovery } from './components/PasswordRecovery'
 import { LobbyScreen, type CreateRoomOptions, type LobbyRoom } from './components/lobby/LobbyScreen'
 import { Toast } from './components/Toast'
-import { createGameState, GameRuleError, reduceGame, type GameAction, type GameState, type PublicGameState } from './game'
+import { createGameState, GameRuleError, reduceGame, type GameAction, type GameRules, type GameState, type PublicGameState } from './game'
 import { fetchGameSnapshot, submitGameAction, subscribeToGameVersion } from './lib/gameApi'
 import { adaptRemoteGame, toServerAction, type RemoteGameMeta, type RemoteSnapshotEnvelope } from './lib/remoteGame'
 import { createInvite, createRoom, joinRoom, joinRoomByInvite, leaveLobbyRoom, listAvailableRooms, startRoom } from './lib/roomsApi'
@@ -34,7 +34,7 @@ function rememberedGameId(): string | null {
   try { return window.localStorage.getItem(ACTIVE_GAME_STORAGE_KEY) } catch { return null }
 }
 
-function createDemoGame(): GameState {
+function createDemoGame(rules: Partial<GameRules> = {}): GameState {
   const started = reduceGame(
     createGameState({
       id: 'local-civic-table',
@@ -45,7 +45,7 @@ function createDemoGame(): GameState {
         { id: 'rhea-james', name: 'Rhea James', color: '#a78bfa' },
         { id: 'jun-park', name: 'Jun Park', color: '#ef7d89' },
       ],
-      rules: { jackpotEnabled: true, fastAnimations: true },
+      rules: { jackpotEnabled: true, fastAnimations: true, ...rules },
       now: Date.now() - 20_000,
     }),
     { type: 'START_GAME', playerId: LOCAL_PLAYER_ID, now: Date.now() - 19_500 },
@@ -67,6 +67,8 @@ function createDemoGame(): GameState {
     ['canal-view', 'rhea-james', 2],
     ['gallery-row', 'jun-park', 4],
     ['theatre-district', 'jun-park', 5],
+    ['skyline-drive', 'milo-chen', 3],
+    ['aurora-arch', 'rhea-james', 5],
   ] as const
   for (const [tileId, ownerId, buildings] of showcase) {
     const property = state.properties[tileId]
@@ -83,7 +85,7 @@ function createDemoGame(): GameState {
     sequence: state.events.length + 1,
     type: 'message',
     actorId: null,
-    message: 'The Harbor Assembly has opened its city ledger.',
+    message: 'Welcome to World Tour! Pick a country and build your fortune.',
     createdAt: Date.now() - 10_000,
   })
   return state
@@ -129,13 +131,16 @@ function chooseAutomatedAction(game: GameState): GameAction | null {
 
 export default function App() {
   const { user, loading, recoveringPassword, clearPasswordRecovery, signOut } = useAuth()
-  const [screen, setScreen] = useState<'auth' | 'lobby' | 'game'>(isSupabaseConfigured ? 'auth' : 'auth')
+  const [screen, setScreen] = useState<'auth' | 'lobby' | 'game'>(() => new URLSearchParams(window.location.search).has('signin') ? 'auth' : 'game')
   const [game, setGame] = useState<GameState>(() => createDemoGame())
+  const localGameRef=useRef(game)
+  localGameRef.current=game
   const [remoteGame, setRemoteGame] = useState<PublicGameState | null>(null)
   const [remoteMeta, setRemoteMeta] = useState<RemoteGameMeta | null>(null)
   const [remoteConnected, setRemoteConnected] = useState(false)
   const [rooms, setRooms] = useState<LobbyRoom[]>(DEMO_ROOMS)
   const [notice, setNotice] = useState<string | null>(null)
+  const [presentationBusy,setPresentationBusy]=useState(false)
   const remoteVersionRef = useRef<{ id: string; version: number } | null>(null)
   const restoreAttemptRef = useRef<string | null>(null)
 
@@ -171,12 +176,14 @@ export default function App() {
     const known = remoteVersionRef.current
     if (!known || known.id !== nextMeta.id || known.version > nextMeta.version) return false
 
+    // Validate before entering a React state updater so incompatible old rooms
+    // become a recoverable notice rather than a render-time exception.
+    const next = adaptRemoteGame(envelope)
     remoteVersionRef.current = { id: nextMeta.id, version: nextMeta.version }
     setRemoteMeta((current) => current?.id === nextMeta.id && current.version > nextMeta.version ? current : nextMeta)
     setRemoteGame((current) => {
       const newest = remoteVersionRef.current
       if (!newest || newest.id !== nextMeta.id || newest.version !== nextMeta.version) return current
-      const next = adaptRemoteGame(envelope)
       // Action responses can omit the feed page; preserve it until the
       // subsequent authoritative snapshot arrives.
       if ((!envelope.events || envelope.events.length === 0) && current?.id === next.id) next.events = current.events
@@ -248,7 +255,9 @@ export default function App() {
 
   const applyAction = (action: GameAction) => {
     try {
-      setGame((current) => reduceGame(current, action, { rollDice: rollDemoDice }))
+      const next=reduceGame(localGameRef.current, action, { rollDice: rollDemoDice })
+      localGameRef.current=next
+      setGame(next)
     } catch (error) {
       setNotice(error instanceof GameRuleError ? error.message : 'That action could not be applied.')
     }
@@ -284,12 +293,12 @@ export default function App() {
   // The local preview keeps the table lively. Real rooms send the exact same
   // actions to the Edge Function and never run this client-side automation.
   useEffect(() => {
-    if (remoteGame || screen !== 'game' || game.status !== 'active' || game.currentPlayerId === LOCAL_PLAYER_ID) return
+    if (presentationBusy || remoteGame || screen !== 'game' || game.status !== 'active' || game.currentPlayerId === LOCAL_PLAYER_ID) return
     const next = chooseAutomatedAction(game)
     if (!next) return
     const timer = window.setTimeout(() => applyAction(next), game.rules.fastAnimations ? 640 : 1_050)
     return () => window.clearTimeout(timer)
-  }, [game, remoteGame, screen])
+  }, [game, remoteGame, screen, presentationBusy])
 
   const openDemo = () => {
     remoteVersionRef.current = null
@@ -407,6 +416,8 @@ export default function App() {
             onCreateInvite={remoteGame && remoteMeta?.visibility === 'private' ? () => { void shareRemoteInvite() } : undefined}
             onAction={remoteGame ? (action) => { void applyRemoteAction(action) } : applyAction}
             onExit={returnFromGame}
+            onPresentationBusy={setPresentationBusy}
+            onRestart={remoteGame ? undefined : (rules) => setGame(createDemoGame(rules))}
           />
         </Suspense>
       ) : user || screen === 'lobby' ? (

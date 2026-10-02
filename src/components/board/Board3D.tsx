@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import type { GameState, PublicGameState } from '../../game/types';
 import { BOARD, BOARD_SIZE as GAME_BOARD_SIZE } from '../../game/board';
+import { DiceRoller, type DiceResult } from '../game/DiceRoller';
 
 type UnknownRecord = Record<string, unknown>;
 type BoardGameState = GameState | PublicGameState;
@@ -45,6 +46,8 @@ type BoardTableProps = {
   activeId?: string;
   onSelectSpace: (spaceId: string) => void;
   reducedMotion: boolean;
+  diceResult: DiceResult | null;
+  diceTrigger?: string | number | null;
 };
 
 export interface Board3DProps {
@@ -56,6 +59,8 @@ export interface Board3DProps {
   onSelectSpace?: (spaceId: string) => void;
   /** Stops non-essential visual motion. */
   reducedMotion?: boolean;
+  /** Changes whenever the table has committed a new dice roll. */
+  diceTrigger?: string | number | null;
   /** Optional inline container styles, for placement in a room shell. */
   style?: CSSProperties;
 }
@@ -265,6 +270,22 @@ function tableSpaceIcon(space: VisualSpace): string {
   return '\u2726';
 }
 
+function TileScenery({ space }: { space: VisualSpace }) {
+  const kind = (space.kind === 'district' || space.kind === 'property' || space.kind === 'parcel')
+    ? 'district'
+    : (space.kind === 'transit' || space.kind === 'route')
+      ? 'transit'
+      : (space.kind === 'utility' || space.kind === 'works')
+        ? 'utility'
+        : (space.kind === 'event' || space.kind === 'civic')
+          ? 'card'
+          : (space.kind === 'start' || space.kind === 'detention' || space.kind === 'gotodetention' || space.kind === 'festival' || space.kind === 'rest')
+            ? 'landmark'
+            : 'marker';
+
+  return <span aria-hidden="true" className={`board-tile__scenery board-tile__scenery--${kind}`}><i /><i /><i /></span>;
+}
+
 function TableBuildings({ count }: { count: number }) {
   if (count <= 0) return null;
   if (count >= 5) {
@@ -303,7 +324,7 @@ function propertyForSlot(slot: VisualSlot, selectedSpaceId: string | null, prope
   }, undefined);
 }
 
-function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, onSelectSpace, reducedMotion }: BoardTableProps) {
+function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, onSelectSpace, reducedMotion, diceResult, diceTrigger }: BoardTableProps) {
   const playerById = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
   const tokensByIndex = useMemo(() => {
     const map = new Map<number, VisualPlayer[]>();
@@ -316,18 +337,16 @@ function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, on
 
   return (
     <div aria-label="Civic Fortune isometric board" className={`play-board play-board--isometric${reducedMotion ? ' play-board--reduced-motion' : ''}`}>
-      <div aria-hidden="true" className="play-board__center">
-        <span className="play-board__sun" />
-        <span className="play-board__cloud play-board__cloud--one" />
-        <span className="play-board__cloud play-board__cloud--two" />
-        <span className="play-board__road" />
-        <span className="play-board__park play-board__park--one" />
-        <span className="play-board__park play-board__park--two" />
-        <span className="play-board__fountain"><i /><i /><i /></span>
-        <div className="play-board__title">
+      <div className="play-board__center">
+        <div aria-hidden="true" className="play-board__title">
           <span>ROLL / TRADE / BUILD</span>
           <strong>CIVIC<br /><b>FORTUNE</b></strong>
           <small>THE FRIENDLIEST CITY ON THE BOARD</small>
+        </div>
+        <span aria-hidden="true" className="play-board__plaza-mark">CF</span>
+        <span aria-hidden="true" className="play-board__cityscape"><i /><i /><i /><i /><i /><i /><i /></span>
+        <div className="play-board__dice">
+          <DiceRoller result={diceResult} trigger={diceTrigger} reducedMotion={reducedMotion} label="Board dice" className="dice-roller--tabletop" />
         </div>
       </div>
       {spaces.map((slot) => {
@@ -355,6 +374,7 @@ function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, on
             style={{ gridColumn: placement.gridColumn, gridRow: placement.gridRow, '--tile-color': tileColor(space), '--owner-color': owner?.color ?? 'transparent' } as CSSProperties}
           >
             <span className="board-tile__stripe" />
+            <TileScenery space={space} />
             {slot.spaces.length > 1 && <span className="board-tile__group-count" aria-hidden="true">+{slot.spaces.length - 1}</span>}
             <span className="board-tile__icon" aria-hidden="true">{tableSpaceIcon(space)}</span>
             <span className="board-tile__name">{space.label}</span>
@@ -375,7 +395,7 @@ function BoardTable({ spaces, players, properties, selectedSpaceId, activeId, on
  * The board uses CSS 3D rather than a WebGL canvas: the fixed isometric camera
  * is always available, while every tile remains a normal accessible button.
  */
-export const Board3D = memo(function Board3D({ game, selectedSpaceId: selectedSpaceIdProp, onSelectSpace, reducedMotion = false, style }: Board3DProps) {
+export const Board3D = memo(function Board3D({ game, selectedSpaceId: selectedSpaceIdProp, onSelectSpace, reducedMotion = false, diceTrigger, style }: Board3DProps) {
   const [localSelectedSpaceId, setLocalSelectedSpaceId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pinchPoints = useRef(new Map<number, { x: number; y: number }>());
@@ -440,7 +460,7 @@ export const Board3D = memo(function Board3D({ game, selectedSpaceId: selectedSp
       onPointerCancel={endPinch}
       style={{ '--board-zoom': zoom, ...style } as CSSProperties}
     >
-      <BoardTable spaces={compactSpaces} players={players} properties={properties} selectedSpaceId={selectedSpaceId} activeId={activeId} onSelectSpace={selectSpace} reducedMotion={reducedMotion} />
+      <BoardTable spaces={compactSpaces} players={players} properties={properties} selectedSpaceId={selectedSpaceId} activeId={activeId} onSelectSpace={selectSpace} reducedMotion={reducedMotion} diceResult={game.lastRoll} diceTrigger={diceTrigger} />
       <div className="board-zoom-controls" role="group" aria-label="Board zoom controls">
         <button type="button" aria-label="Zoom out" onClick={() => setZoom((current) => clampZoom(current - 0.1))}>-</button>
         <button type="button" aria-label="Reset zoom" onClick={() => setZoom(DEFAULT_ZOOM)}>{Math.round(zoom * 100)}%</button>

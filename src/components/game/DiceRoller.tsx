@@ -127,7 +127,6 @@ function Die({ value, index, rolling, reducedMotion, seed }: {
           </div>
         ))}
       </div>
-      <span className="dice__shadow" />
     </div>
   )
 }
@@ -204,6 +203,7 @@ export function DiceRoller({
     }, SCRAMBLE_INTERVAL_MS)
 
     const settle = window.setTimeout(() => {
+      window.clearInterval(interval)
       rollingRef.current = false
       setRolling(false)
       setVisibleResult(latestResultRef.current)

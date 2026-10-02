@@ -134,8 +134,8 @@ are discoverable only while their lobby is open.
 
 ## Data and engine boundary
 
-`functions/_shared/board.ts` is the data-driven, original 52-space Civic
-Fortune board. `functions/_shared/engine.ts` is a pure transition layer used
+`functions/_shared/board.ts` is the data-driven, 40-space World Tour
+board. `functions/_shared/engine.ts` is a pure transition layer used
 by Edge Functions; its public projection removes card/deck order, debt
 details, and unaccepted trade terms. The frontend should mirror the public
 board definitions for rendering but must treat `game-snapshot` as truth.

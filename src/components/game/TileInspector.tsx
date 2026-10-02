@@ -51,7 +51,7 @@ export function TileInspector({ game, selectedTileId, actorId, placeSetId, onAct
     <aside className="tile-card" aria-label={`${displayName} details`}>
       <div className="tile-card-top">
         <div>
-          <p className="tile-card-kicker">{tile.kind.toUpperCase()} {tile.group ? `· ${tile.group}` : ''}</p>
+          <p className="tile-card-kicker">{tile.kind === 'district' ? 'COUNTRY' : tile.kind.toUpperCase()}</p>
           <h2>{displayName}</h2>
         </div>
         {tile.price && <span className="tile-card-value">{formatCredits(tile.price)}</span>}

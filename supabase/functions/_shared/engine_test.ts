@@ -13,9 +13,15 @@ function game(): PrivateGameState {
   return activateGame(createInitialGameState(players, DEFAULT_SETTINGS, now, <T>(items: T[]) => items), context(players[0]));
 }
 
+Deno.test("legacy boards cannot be played using the new country positions", () => {
+  const state = game();
+  state.assets["orchard-gate"] = { ...state.assets["cedar-quay"] };
+  assertThrows(() => applyGameAction(state, { type: "roll" }, context(players[0])), GameRuleError, "previous board");
+});
+
 Deno.test("roll, purchase, and public cash state are authoritative", () => {
   const state = game();
-  state.players[players[0]].position = 51;
+  state.players[players[0]].position = 39;
   const landed = applyGameAction(state, { type: "roll" }, context(players[0]));
   assertEquals(landed.state.pendingPurchase?.tileId, "cedar-quay");
   const bought = applyGameAction(landed.state, { type: "buy_asset" }, context(players[0]));
@@ -25,7 +31,7 @@ Deno.test("roll, purchase, and public cash state are authoritative", () => {
 
 Deno.test("rent transfers to the owner and never trusts a client amount", () => {
   const state = game();
-  state.players[players[0]].position = 51;
+  state.players[players[0]].position = 39;
   state.assets["cedar-quay"].ownerId = players[1];
   const next = applyGameAction(state, { type: "roll" }, context(players[0]));
   assertEquals(next.state.players[players[0]].cash, 1696);
@@ -35,7 +41,7 @@ Deno.test("rent transfers to the owner and never trusts a client amount", () => 
 
 Deno.test("arriving on Founders' Plaza awards the start dividend exactly once", () => {
   const state = game();
-  state.players[players[0]].position = 50;
+  state.players[players[0]].position = 38;
   const result = applyGameAction(state, { type: "roll" }, context(players[0]));
   assertEquals(result.state.players[players[0]].position, 0);
   assertEquals(result.state.players[players[0]].cash, 1700);
@@ -44,7 +50,7 @@ Deno.test("arriving on Founders' Plaza awards the start dividend exactly once", 
 
 Deno.test("a card move to Founders' Plaza also awards the start dividend once", () => {
   const state = game();
-  state.players[players[0]].position = 6;
+  state.players[players[0]].position = 5;
   state.eventDeck = ["harbor_transfer"];
   state.eventCursor = 0;
   const result = applyGameAction(state, { type: "roll" }, context(players[0], [1, 1]));
@@ -68,7 +74,7 @@ Deno.test("development must remain even across a completed district", () => {
 
 Deno.test("declined assets auction to the highest remaining bidder", () => {
   const state = game();
-  state.players[players[0]].position = 51;
+  state.players[players[0]].position = 39;
   const landed = applyGameAction(state, { type: "roll" }, context(players[0]));
   const auction = applyGameAction(landed.state, { type: "decline_asset" }, context(players[0]));
   const bid = applyGameAction(auction.state, { type: "place_bid", amount: 65 }, context(players[1]));
@@ -190,7 +196,7 @@ Deno.test("detained players can exit only with doubles, a permit, or a fee", () 
 
 Deno.test("pausing an auction preserves its remaining deadline on resume", () => {
   const state = game();
-  state.players[players[0]].position = 51;
+  state.players[players[0]].position = 39;
   const landed = applyGameAction(state, { type: "roll" }, context(players[0]));
   const auction = applyGameAction(landed.state, { type: "decline_asset" }, context(players[0]));
   const pauseAt = new Date(now.getTime() + 5_000);

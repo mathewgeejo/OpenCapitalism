@@ -32,7 +32,7 @@ export type BuildingLabel = "none" | "house" | "tower";
 export interface Tile {
   /** Stable identifier used by the persistent game state. */
   id: TileId;
-  /** 0-based movement position around the 52-space board. */
+  /** 0-based movement position around the 40-space board. */
   index: number;
   name: string;
   kind: TileKind;

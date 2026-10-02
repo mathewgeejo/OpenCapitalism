@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Accessibility, Crown, Handshake, Link2, LogOut, Map, Trees, Trophy, Volume2 } from 'lucide-react'
-import { Board3D } from '../board/Board3D'
-import type { GameAction, GameViewState } from '../../game/types'
+import { Accessibility, Crown, Handshake, Link2, LogOut, Map, Trees, Trophy, Settings2, X, ChevronRight } from 'lucide-react'
+import { CityBoard } from '../board/CityBoard'
+import type { GameAction, GameRules, GameViewState } from '../../game/types'
 import { BOARD } from '../../game/board'
 import { DEFAULT_PLACE_SET_ID, getPlaceSet, isPlaceSetId, PLACE_SETS, type PlaceSetId } from '../../game/placeSets'
 import { Brand } from '../Brand'
@@ -10,7 +10,6 @@ import { GameControls } from './GameControls'
 import { PlayerPanel, CurrentPlayerSummary } from './PlayerPanel'
 import { TileInspector } from './TileInspector'
 import { TradeDialog } from './TradeDialog'
-import { DiceRoller } from './DiceRoller'
 import { formatCredits, initials, playerNetWorth } from '../../lib/gamePresentation'
 
 type GameTableProps = {
@@ -22,13 +21,20 @@ type GameTableProps = {
   onCreateInvite?: () => void
   onAction: (action: GameAction) => void
   onExit: () => void
+  onPresentationBusy?: (busy: boolean) => void
+  onRestart?: (rules: Partial<GameRules>) => void
 }
 
-export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbor Assembly', roomVisibility = 'public', onCreateInvite, onAction, onExit }: GameTableProps) {
-  const [selectedTileId, setSelectedTileId] = useState<string | null>(BOARD[0]?.id ?? null)
+export function GameTable({ game, actorId, connected = false, roomTitle = 'World Tour', roomVisibility = 'public', onCreateInvite, onAction, onExit, onRestart, onPresentationBusy }: GameTableProps) {
+  const [selectedTileId, setSelectedTileId] = useState<string | null>('cedar-quay')
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(actorId)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [tradeOpen, setTradeOpen] = useState(false)
+  const [animating,setAnimating]=useState(false)
+  const [cardOpen,setCardOpen]=useState(false)
+  const handleMotion=useCallback((busy:boolean)=>setAnimating(busy),[])
+  useEffect(()=>{onPresentationBusy?.(animating||cardOpen)},[animating,cardOpen,onPresentationBusy])
+  const rulesRef = useRef<HTMLDialogElement>(null)
   const [placeSetId, setPlaceSetId] = useState<PlaceSetId>(() => {
     try {
       const saved = window.localStorage.getItem('civic-fortune:place-set')
@@ -47,9 +53,9 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
     : 0
   const canUseTradeDesk = game.status === 'active' && Boolean(actor && (actor.status === 'active' || actor.status === 'detained'))
   const placeSet = getPlaceSet(placeSetId)
-  const rollEvent = [...game.events].reverse().find((event) => event.type === 'roll' || /\brolled\b/i.test(event.message))
-  const rollSignature = `${rollEvent?.id ?? 'none'}:${game.lastRoll?.join(':') ?? 'none'}`
-  const completedRolls = game.events.filter((event) => event.type === 'roll' || /\brolled\b/i.test(event.message)).length
+  const rollEvent = [...game.events].reverse().find((event) => event.type === 'roll' || /\brolled\s+\d/i.test(event.message))
+  const rollSignature = rollEvent?.id ?? 'none'
+  const completedRolls = game.events.filter((event) => event.type === 'roll' || /\brolled\s+\d/i.test(event.message)).length
   const roundNumber = Math.max(1, Math.floor(completedRolls / Math.max(1, game.players.length)) + 1)
 
   useEffect(() => {
@@ -89,12 +95,12 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
   }, [placeSetId])
 
   return (
-    <main className="app-shell">
+    <main className="app-shell city-app">
       <header className="topbar">
         <div className="topbar-left">
           <div className="hud-logo">
             <Brand compact />
-            <span><small>GAME NIGHT</small><strong>CIVIC FORTUNE</strong></span>
+            <span><small>YOUR NEXT BIG ADVENTURE</small><strong>OPEN CAPITALISM</strong></span>
           </div>
           <div className="room-label">
             <Trees size={15} />
@@ -122,39 +128,52 @@ export function GameTable({ game, actorId, connected = false, roomTitle = 'Harbo
               {PLACE_SETS.map((set) => <option key={set.id} value={set.id}>{set.shortLabel}</option>)}
             </select>
           </label>
-          <button className="topbar-button" type="button" onClick={() => setReducedMotion(!reducedMotion)} title="Toggle reduced motion">
+          <button className="topbar-button" type="button" aria-pressed={reducedMotion} onClick={() => setReducedMotion(!reducedMotion)} title="Toggle reduced motion">
             <Accessibility size={15} /> <span className="topbar-button-label">Motion</span>
           </button>
+          <button className="topbar-button" type="button" onClick={() => rulesRef.current?.showModal()} title="View game rules"><Settings2 size={15} /><span className="topbar-button-label">Rules</span></button>
           <button className="topbar-button" type="button" onClick={onExit} title="Leave table">
             <LogOut size={15} /> <span className="topbar-button-label">Leave</span>
           </button>
         </div>
       </header>
 
+      <div className="table-heading"><div><span className="table-eyebrow">PACK YOUR BAGS. ROLL THE DICE.</span><h1>Next stop: your empire</h1><p>22 countries. 40 spaces. A world of friendly rivalry.</p></div><div className="table-mode"><span className="mode-dot" />{connected ? 'Multiplayer' : 'Practice table'}<span> / </span>World edition</div></div>
       <div className="game-workspace">
         <section className="table-area">
           <div className="board-canvas">
-            <Board3D
+            <CityBoard
               game={game}
+              actorId={actorId}
+              onMotionChange={handleMotion}
+              onCardOpen={setCardOpen}
+              busy={animating}
               selectedSpaceId={selectedTileId}
               onSelectSpace={setSelectedTileId}
               reducedMotion={reducedMotion}
+              diceTrigger={rollTrigger}
+              placeSetId={placeSet.id}
               style={{ height: '100%' }}
             />
           </div>
-          <div className="dice-roll-slot" aria-hidden={game.lastRoll === null}>
-            <DiceRoller result={game.lastRoll} trigger={rollTrigger} reducedMotion={reducedMotion} label="Table dice" />
-          </div>
-          <TileInspector game={game} selectedTileId={selectedTileId} actorId={actorId} placeSetId={placeSet.id} onAction={dispatchAction} />
-          <GameControls game={game} actorId={actorId} onAction={dispatchAction} />
+          <GameControls game={game} actorId={actorId} onAction={dispatchAction} busy={animating||cardOpen} />
         </section>
         <aside className="game-sidebar">
           <PlayerPanel game={game} selectedPlayerId={selectedPlayerId} onSelect={setSelectedPlayerId} />
+          <div className="property-section"><div className="section-label">COUNTRY SPOTLIGHT <ChevronRight size={14} /></div><TileInspector game={game} selectedTileId={selectedTileId} actorId={actorId} placeSetId={placeSet.id} onAction={dispatchAction} /></div>
           <ActivityFeed game={game} />
         </aside>
       </div>
       <span className="sr-only" aria-live="polite">{game.events.at(-1)?.message ?? 'Civic Fortune table ready'}</span>
-      <span className="sound-mark" aria-hidden="true"><Volume2 size={13} /> LIVE</span>
+      <footer className="city-footer"><span><i /> {connected ? 'Connected to your room' : 'Local practice / no account needed'}</span><span>A little luck. A lot of friendly competition.</span><span>OPEN CAPITALISM <b> / </b> EARLY PREVIEW</span></footer>
+      <dialog className="rules-dialog" ref={rulesRef} onClick={event => { if(event.target===event.currentTarget) rulesRef.current?.close() }}>
+        <div className="rules-heading"><div><span className="table-eyebrow">THIS TABLE</span><h2>House rules</h2></div><button aria-label="Close rules" onClick={() => rulesRef.current?.close()}><X size={20} /></button></div>
+        <p>The rules everyone is playing by. Economic settings are fixed once the game begins.</p>
+        <dl>{[['Starting balance', formatCredits(game.rules.startingCash)], ['Passing Start', formatCredits(game.rules.startBonus)], ['Turn timer', game.rules.turnTimerSeconds ? `${game.rules.turnTimerSeconds} seconds` : 'Unlimited'], ['Auction timer', `${game.rules.auctionSeconds} seconds`], ['Release fee', formatCredits(game.rules.detentionFee)], ['Community jackpot', game.rules.jackpotEnabled ? 'On' : 'Off']].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <label className="motion-setting"><span>Reduce animations<small>Keep dice movement to a minimum.</small></span><input type="checkbox" checked={reducedMotion} onChange={event=>setReducedMotion(event.target.checked)} /></label>
+        {onRestart && <form className="practice-settings" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);onRestart({startingCash:Number(data.get('cash')),startBonus:Number(data.get('bonus')),turnTimerSeconds:Number(data.get('timer')),jackpotEnabled:data.get('jackpot')==='on'});rulesRef.current?.close()}}><h3>Make the next table yours</h3><p>Start a fresh practice game with your house rules.</p><label>Starting balance<input name="cash" type="number" min="1000" max="10000" step="50" defaultValue={game.rules.startingCash} required /></label><label>Passing Start<input name="bonus" type="number" min="0" max="1000" step="10" defaultValue={game.rules.startBonus} required /></label><label>Turn timer<select name="timer" defaultValue={game.rules.turnTimerSeconds}><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option><option value="120">120 seconds</option></select></label><label>Community jackpot<input name="jackpot" type="checkbox" defaultChecked={game.rules.jackpotEnabled} /></label><button type="submit" className="rules-done">Restart practice with these rules</button></form>}
+        <button className="rules-done" onClick={()=>rulesRef.current?.close()}>Back to the city</button>
+      </dialog>
       {tradeOpen && <TradeDialog game={game} actorId={actorId} onAction={dispatchAction} onClose={() => setTradeOpen(false)} />}
       {game.status === 'complete' && <GameCompleteOverlay game={game} onExit={onExit} />}
     </main>

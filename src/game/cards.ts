@@ -30,14 +30,14 @@ export const EVENT_CARDS: readonly Card[] = Object.freeze([
     id: "event-city-inspection",
     deck: "event",
     title: "City Inspection",
-    text: "Report to Civic Hold.",
+    text: "Report to Jail.",
     effect: { type: "detention" },
   },
   {
     id: "event-founders-parade",
     deck: "event",
     title: "Founders' Parade",
-    text: "Advance to Founders' Plaza and collect the civic dividend.",
+    text: "Advance to GO and collect the civic dividend.",
     effect: { type: "moveTo", tileIndex: 0 },
   },
   {
@@ -54,7 +54,7 @@ export const CIVIC_CARDS: readonly Card[] = Object.freeze([
     id: "civic-release-pass",
     deck: "civic",
     title: "Civic Release Pass",
-    text: "Keep this pass; it releases you from Civic Hold.",
+    text: "Keep this pass; it releases you from Jail.",
     effect: { type: "detentionPass" },
   },
   {
@@ -75,8 +75,8 @@ export const CIVIC_CARDS: readonly Card[] = Object.freeze([
     id: "civic-commons-visit",
     deck: "civic",
     title: "Commons Visit",
-    text: "Advance to the Commons Festival.",
-    effect: { type: "moveTo", tileIndex: 26 },
+    text: "Advance to the Free Parking.",
+    effect: { type: "moveTo", tileIndex: 20 },
   },
   {
     id: "civic-neighbourhood-fund",
@@ -89,7 +89,7 @@ export const CIVIC_CARDS: readonly Card[] = Object.freeze([
     id: "civic-hearing",
     deck: "civic",
     title: "Civic Hearing",
-    text: "Attend a hearing at Civic Hold.",
+    text: "Attend a hearing at Jail.",
     effect: { type: "detention" },
   },
 ]);
